@@ -1,0 +1,51 @@
+# Chrome Extension Build Files
+*.crx
+*.pem
+build/
+dist/
+
+# Development Tools
+.vscode/
+*.code-workspace
+
+# System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and Debug Files
+*.log
+debug.log
+*.tmp
+
+# Node.js (if using npm/yarn)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Package managers
+package-lock.json
+yarn.lock
+
+# Environment and Config Files
+.env
+.env.local
+.env.development
+.env.production
+config.json
+
+# Temporary Files
+temp/
+tmp/
+*.temp
+
+# IDE Files
+*.swp
+*.swo
+*~
+
+# Archive Files
+*.zip
+*.rar
+*.tar.gz

@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>EO List Options</title>
+    <style>
+      body { font-family: system-ui, Arial, sans-serif; margin: 20px; }
+      label { display: block; margin-top: 12px; font-weight: 600; }
+      input { padding: 6px 8px; width: 320px; }
+      button { margin-top: 16px; padding: 8px 12px; }
+      .hint { color: #444; font-size: 12px; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <h2>EO List – Credentials</h2>
+    <label>Username
+      <input id="eo-user" type="text" autocomplete="off" />
+    </label>
+    <label>Password
+      <input id="eo-pass" type="password" autocomplete="off" />
+    </label>
+    <button id="save">Save</button>
+    <button id="test">Test login now</button>
+    <div class="hint">Stored locally in Chrome extension storage. Not synced. You can clear anytime.</div>
+    <script>
+      (async function(){
+        const $ = id => document.getElementById(id);
+        let { eoCreds } = await chrome.storage.local.get('eoCreds');
+        if (!eoCreds) ({ eoCreds } = await chrome.storage.sync.get('eoCreds'));
+        if (eoCreds) {
+          $('eo-user').value = eoCreds.username || '';
+          $('eo-pass').value = eoCreds.password || '';
+        }
+        $('save').addEventListener('click', async () => {
+          const creds = { username: $('eo-user').value.trim(), password: $('eo-pass').value };
+          await chrome.storage.local.set({ eoCreds: creds });
+          try { await chrome.storage.sync.set({ eoCreds: creds }); } catch {}
+          alert('Saved');
+        });
+        $('test').addEventListener('click', async () => {
+          chrome.runtime.sendMessage({ type: 'EO_TEST_LOGIN' });
+        });
+        chrome.runtime.onMessage.addListener((msg) => {
+          if (msg?.type === 'EO_TEST_LOGIN_RESULT') {
+            const r = msg.payload;
+            if (r.ok) alert('Login test OK');
+            else alert('Login test failed: ' + (r.reason || 'Unknown'));
+          }
+        });
+      })();
+    </script>
+  </body>
+  </html>
+
+

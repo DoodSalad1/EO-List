@@ -1,0 +1,38 @@
+{
+  "name": "EO List",
+  "description": "Join the Early Out list at the earliest possible moment on the VR roster page.",
+  "version": "0.1.0",
+  "manifest_version": 3,
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "scripting",
+    "activeTab",
+    "tabs",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://vr.hollywoodcasinocolumbus.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://vr.hollywoodcasinocolumbus.com/*"
+      ],
+      "js": ["src/content.js"],
+      "css": ["src/inject.css"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
+
+
