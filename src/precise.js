@@ -24,22 +24,130 @@
   }
 
   function openFirstShiftCell() {
-    // Prefer a shift cell with today’s date if visible
+    log('Opening first shift cell...');
+    
+    // Prefer a shift cell with today's date if visible
     const today = new Date();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');
     const yyyy = today.getFullYear();
-    const dateRegex = new RegExp(`${mm}/${dd}/${yyyy}`);
-    const cells = Array.from(document.querySelectorAll('td, div'));
-    let target = cells.find(el => dateRegex.test(el.textContent || ''));
-    if (!target) target = cells.find(el => /\d{1,2}:\d{2}\s*(am|pm)\s*-\s*\d{1,2}:\d{2}/i.test(el.textContent || ''));
-    target?.click();
+    const todayStr = `${mm}/${dd}/${yyyy}`;
+    
+    log('Looking for today\\'s date:', todayStr);
+    
+    const selectors = ['td', 'div', '[role="gridcell"]', '.calendar-cell', '.day-cell'];
+    let target = null;
+    
+    // Strategy 1: Look for today's date
+    for (const selector of selectors) {
+      const cells = Array.from(document.querySelectorAll(selector));
+      log(`Checking ${cells.length} cells with selector: ${selector}`);
+      
+      target = cells.find(el => {
+        const text = el.textContent || '';
+        return text.includes(todayStr) && /\d{1,2}:\d{2}\s*(am|pm)/i.test(text);
+      });
+      
+      if (target) {
+        log('Found today\\'s shift cell:', target.textContent?.trim());
+        break;
+      }
+    }
+    
+    // Strategy 2: Look for any shift with time range
+    if (!target) {
+      log('No today cell found, looking for any time range...');
+      const timePatterns = [
+        /\d{1,2}:\d{2}\s*(am|pm)\s*-\s*\d{1,2}:\d{2}\s*(am|pm)/i,
+        /\d{1,2}:\d{2}-\d{1,2}:\d{2}/i,
+        /\d{1,2}:\d{2}\s*(am|pm)/i
+      ];
+      
+      for (const selector of selectors) {
+        const cells = Array.from(document.querySelectorAll(selector));
+        for (const pattern of timePatterns) {
+          target = cells.find(el => pattern.test(el.textContent || ''));
+          if (target) {
+            log('Found shift cell with pattern:', pattern, 'text:', target.textContent?.trim());
+            break;
+          }
+        }
+        if (target) break;
+      }
+    }
+    
+    if (target) {
+      log('Clicking shift cell:', target.textContent?.trim());
+      target.click();
+    } else {
+      log('No shift cell found to click');
+      
+      // Debug: show available cells
+      const allCells = Array.from(document.querySelectorAll('td, div'));
+      const cellsWithText = allCells.filter(c => (c.textContent || '').trim().length > 0);
+      log('Available cells with text:', cellsWithText.slice(0, 10).map(c => `"${c.textContent?.trim()}"`));
+    }
   }
 
   function clickByText(text) {
-    const xp = `.//button[normalize-space() = "${text}"] | .//a[normalize-space() = "${text}"] | .//*[self::button or self::a][contains(., "${text}")]`;
-    const res = document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-    const el = res.singleNodeValue; if (el) el.click(); return !!el;
+    log('Searching for button with text:', text);
+    
+    // Try multiple XPath strategies with logging
+    const xpathStrategies = [
+      `.//button[normalize-space() = "${text}"] | .//a[normalize-space() = "${text}"]`,
+      `.//*[self::button or self::a][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), "${text.toLowerCase()}")]`,
+      `.//*[self::button or self::a or self::input[@type='button']][contains(., "${text}")]`,
+      `.//*[contains(text(), "${text}") or contains(@value, "${text}") or contains(@title, "${text}")]`
+    ];
+    
+    for (const xpath of xpathStrategies) {
+      try {
+        const res = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+        const el = res.singleNodeValue;
+        if (el) {
+          log('Found element with XPath:', xpath, 'text content:', el.textContent?.trim());
+          el.click();
+          return true;
+        }
+      } catch (error) {
+        log('XPath error:', xpath, error.message);
+      }
+    }
+    
+    // Fallback: CSS selector approach with logging
+    log('XPath failed, trying CSS selectors for:', text);
+    const selectors = ['button', 'a', '[role="button"]', 'input[type="button"]', '.btn', '.k-button'];
+    for (const selector of selectors) {
+      try {
+        const elements = Array.from(document.querySelectorAll(selector));
+        log(`Found ${elements.length} elements with selector: ${selector}`);
+        
+        const el = elements.find(elem => {
+          const content = (elem.textContent || '').trim().toLowerCase();
+          const value = (elem.value || '').trim().toLowerCase();
+          const title = (elem.title || '').trim().toLowerCase();
+          const searchText = text.toLowerCase();
+          
+          return content.includes(searchText) || value.includes(searchText) || title.includes(searchText);
+        });
+        
+        if (el) {
+          log('Found element with CSS selector:', selector, 'text content:', el.textContent?.trim());
+          el.click();
+          return true;
+        }
+      } catch (error) {
+        log('CSS selector error:', selector, error.message);
+      }
+    }
+    
+    log('Button not found with any method:', text);
+    
+    // Debug: log all available buttons
+    const allButtons = Array.from(document.querySelectorAll('button, a, [role="button"], input[type="button"]'));
+    log('Available buttons on page:', allButtons.map(b => `"${(b.textContent || b.value || 'no text').trim()}"`));
+    
+    return false;
   }
 
   function trySubmitVariants() {

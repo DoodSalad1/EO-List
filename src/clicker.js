@@ -39,24 +39,199 @@
   }
 
   function clickButtonByText(root, text) {
-    const xpath = `.//button[normalize-space() = "${text}"] | .//a[normalize-space() = "${text}"] | .//*[self::button or self::a][contains(., "${text}")]`;
-    const result = document.evaluate(xpath, root || document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-    const el = result.singleNodeValue;
-    if (el) el.click();
-    return Boolean(el);
+    log('Looking for button with text:', text);
+    
+    // Try multiple XPath strategies
+    const xpathStrategies = [
+      `.//button[normalize-space() = "${text}"] | .//a[normalize-space() = "${text}"]`,
+      `.//*[self::button or self::a][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), "${text.toLowerCase()}")]`,
+      `.//*[self::button or self::a or self::input[@type='button']][contains(., "${text}")]`,
+      `.//button[contains(@class, "btn")] | .//a[contains(@class, "btn")] | .//*[@role="button"]`,
+      `.//*[contains(text(), "${text}") or contains(@value, "${text}") or contains(@title, "${text}") or contains(@aria-label, "${text}")]`
+    ];
+    
+    for (const xpath of xpathStrategies) {
+      try {
+        const result = document.evaluate(xpath, root || document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+        const el = result.singleNodeValue;
+        if (el) {
+          log('Found button with XPath:', xpath, 'element:', el.tagName, el.textContent?.trim());
+          el.click();
+          return true;
+        }
+      } catch (error) {
+        log('XPath error:', xpath, error.message);
+      }
+    }
+    
+    // Fallback: CSS selector approach
+    const selectors = ['button', 'a', '[role="button"]', 'input[type="button"]', '.k-button', '.btn'];
+    for (const selector of selectors) {
+      try {
+        const elements = Array.from((root || document).querySelectorAll(selector));
+        const el = elements.find(elem => {
+          const content = (elem.textContent || '').trim();
+          const value = (elem.value || '').trim();
+          const title = (elem.title || '').trim();
+          return content.toLowerCase().includes(text.toLowerCase()) ||
+                 value.toLowerCase().includes(text.toLowerCase()) ||
+                 title.toLowerCase().includes(text.toLowerCase());
+        });
+        
+        if (el) {
+          log('Found button with CSS selector:', selector, 'element:', el.tagName, el.textContent?.trim());
+          el.click();
+          return true;
+        }
+      } catch (error) {
+        log('CSS selector error:', selector, error.message);
+      }
+    }
+    
+    log('Button not found:', text);
+    return false;
   }
 
   async function tryOpenAnyShift() {
-    // Click the first visible shift cell for today or the targeted date.
-    // Heuristics: cells with a time range like "8:00pm - 4:00am".
-    const cells = Array.from(document.querySelectorAll('td, div'));
-    const target = cells.find(el => /\d{1,2}:\d{2}\s*(am|pm)\s*-\s*\d{1,2}:\d{2}/i.test(el.textContent || ''));
+    log('Trying to open shift cell...');
+    const target = findBestShiftCell();
     if (target) {
+      log('Clicking shift cell:', target.textContent?.trim());
       target.click();
       await sleep(400);
       return true;
     }
+    log('No shift cell found to click');
     return false;
+  }
+
+  function findBestShiftCell() {
+    // Multiple strategies to find the best shift cell to click
+    const strategies = [
+      // Strategy 1: Look for today's shift specifically
+      () => findTodaysShift(),
+      
+      // Strategy 2: Look for any shift with time range
+      () => findShiftWithTimeRange(),
+      
+      // Strategy 3: Look for any clickable time element
+      () => findAnyTimeElement(),
+      
+      // Strategy 4: Look for schedule-related elements
+      () => findScheduleElement()
+    ];
+
+    for (const strategy of strategies) {
+      try {
+        const result = strategy();
+        if (result) {
+          log('Found shift cell using strategy:', strategy.name);
+          return result;
+        }
+      } catch (error) {
+        log('Strategy failed:', strategy.name, error.message);
+      }
+    }
+
+    return null;
+  }
+
+  function findTodaysShift() {
+    const today = new Date();
+    const todayStr = `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}/${today.getFullYear()}`;
+    
+    const selectors = ['td', 'div', '[role="gridcell"]', '.calendar-cell'];
+    for (const selector of selectors) {
+      const cells = Array.from(document.querySelectorAll(selector));
+      const todayCell = cells.find(el => {
+        const text = el.textContent || '';
+        return text.includes(todayStr) && /\d{1,2}:\d{2}\s*(am|pm)/i.test(text);
+      });
+      
+      if (todayCell && isElementClickable(todayCell)) {
+        return todayCell;
+      }
+    }
+    
+    return null;
+  }
+
+  function findShiftWithTimeRange() {
+    const timeRangePatterns = [
+      /\d{1,2}:\d{2}\s*(am|pm)\s*-\s*\d{1,2}:\d{2}\s*(am|pm)/i,
+      /\d{1,2}:\d{2}-\d{1,2}:\d{2}/i,
+      /\d{1,2}(am|pm)\s*-\s*\d{1,2}(am|pm)/i
+    ];
+
+    const selectors = ['td', 'div', '.shift', '.schedule-item'];
+    for (const selector of selectors) {
+      const cells = Array.from(document.querySelectorAll(selector));
+      for (const pattern of timeRangePatterns) {
+        const cell = cells.find(el => {
+          const text = el.textContent || '';
+          return pattern.test(text) && isElementClickable(el);
+        });
+        
+        if (cell) return cell;
+      }
+    }
+    
+    return null;
+  }
+
+  function findAnyTimeElement() {
+    const timePatterns = [
+      /\b\d{1,2}:\d{2}\s*(am|pm)\b/i,
+      /\b\d{1,2}(am|pm)\b/i,
+      /\b(morning|afternoon|evening|night)\b/i
+    ];
+
+    const selectors = ['td', 'div', 'button', 'a', '[role="gridcell"]'];
+    for (const selector of selectors) {
+      const elements = Array.from(document.querySelectorAll(selector));
+      for (const pattern of timePatterns) {
+        const element = elements.find(el => {
+          const text = el.textContent || '';
+          return pattern.test(text) && isElementClickable(el);
+        });
+        
+        if (element) return element;
+      }
+    }
+    
+    return null;
+  }
+
+  function findScheduleElement() {
+    const scheduleKeywords = ['shift', 'schedule', 'work', 'roster', 'calendar'];
+    const selectors = ['*[class*="shift"]', '*[class*="schedule"]', '*[id*="calendar"]', 'td', 'div'];
+    
+    for (const selector of selectors) {
+      const elements = Array.from(document.querySelectorAll(selector));
+      const element = elements.find(el => {
+        const text = (el.textContent || '').toLowerCase();
+        const className = (el.className || '').toLowerCase();
+        const id = (el.id || '').toLowerCase();
+        
+        return scheduleKeywords.some(keyword => 
+          text.includes(keyword) || className.includes(keyword) || id.includes(keyword)
+        ) && isElementClickable(el);
+      });
+      
+      if (element) return element;
+    }
+    
+    return null;
+  }
+
+  function isElementClickable(el) {
+    return el && 
+           el.offsetParent !== null && 
+           el.style.display !== 'none' &&
+           el.style.visibility !== 'hidden' &&
+           (el.tagName === 'TD' || el.tagName === 'DIV' || el.tagName === 'BUTTON' || 
+            el.tagName === 'A' || el.onclick || el.getAttribute('onclick') ||
+            el.style.cursor === 'pointer' || el.getAttribute('role') === 'button');
   }
 
   async function ensureShiftDialog() {

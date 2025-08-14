@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EO List Extension Test Suite</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .header {
+            text-align: center;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 2.5em;
+        }
+        
+        .header p {
+            margin: 0;
+            color: #666;
+            font-size: 1.1em;
+        }
+        
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .run-button {
+            background: linear-gradient(45deg, #0b74de, #1890ff);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(11, 116, 222, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .run-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(11, 116, 222, 0.4);
+        }
+        
+        .run-button:active {
+            transform: translateY(0);
+        }
+        
+        .progress {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            display: none;
+        }
+        
+        .progress-bar {
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            height: 20px;
+            margin: 10px 0;
+        }
+        
+        .progress-fill {
+            background: linear-gradient(45deg, #0b74de, #1890ff);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .console {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 400px;
+            overflow-y: auto;
+            display: none;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .test-category {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            display: none;
+        }
+        
+        .category-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        
+        .category-icon {
+            font-size: 24px;
+            margin-right: 10px;
+        }
+        
+        .category-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .category-stats {
+            margin-left: auto;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .test-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #f5f5f5;
+            display: flex;
+            align-items: center;
+        }
+        
+        .test-item:last-child {
+            border-bottom: none;
+        }
+        
+        .test-status {
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        
+        .test-name {
+            flex: 1;
+            font-size: 14px;
+        }
+        
+        .test-error {
+            color: #ff4444;
+            font-size: 12px;
+            margin-left: 26px;
+            padding: 5px;
+            background: #fff5f5;
+            border-radius: 4px;
+            border-left: 3px solid #ff4444;
+        }
+        
+        .summary {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            display: none;
+        }
+        
+        .summary-stats {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin: 20px 0;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 36px;
+            font-weight: bold;
+            display: block;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .passed { color: #22c55e; }
+        .failed { color: #ef4444; }
+        .total { color: #3b82f6; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🧪 EO List Extension Test Suite</h1>
+        <p>Comprehensive functionality testing for the Hollywood Casino Early Out automation extension</p>
+    </div>
+    
+    <div class="controls">
+        <button id="runTestsBtn" class="run-button">▶️ Run All Tests</button>
+    </div>
+    
+    <div class="progress" id="progressContainer">
+        <div>Running tests... <span id="progressText">0%</span></div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressBar"></div>
+        </div>
+    </div>
+    
+    <div class="console" id="console"></div>
+    
+    <div id="testCategories"></div>
+    
+    <div class="summary" id="summary">
+        <h2>📊 Test Results Summary</h2>
+        <div class="summary-stats">
+            <div class="stat-item">
+                <span class="stat-number total" id="totalTests">0</span>
+                <span class="stat-label">Total Tests</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number passed" id="passedTests">0</span>
+                <span class="stat-label">Passed</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number failed" id="failedTests">0</span>
+                <span class="stat-label">Failed</span>
+            </div>
+        </div>
+        <div id="summaryMessage"></div>
+    </div>
+
+    <!-- Load test framework -->
+    <script src="src/test_runner.js"></script>
+    
+    <!-- Load all test suites with error handling -->
+    <script>
+        // Helper to load test files with error handling
+        function loadTestFile(src) {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = resolve;
+                script.onerror = () => {
+                    console.error('Failed to load test file:', src);
+                    resolve(); // Don't reject, just continue
+                };
+                document.head.appendChild(script);
+            });
+        }
+        
+        // Load all test files sequentially
+        async function loadAllTests() {
+            const testFiles = [
+                'src/tests/auth_tests.js',
+                'src/tests/ui_tests.js',
+                'src/tests/time_tests.js',
+                'src/tests/scheduling_tests.js',
+                'src/tests/automation_tests.js',
+                'src/tests/storage_tests.js',
+                'src/tests/integration_tests.js',
+                'src/tests/error_tests.js'
+            ];
+            
+            for (const file of testFiles) {
+                try {
+                    await loadTestFile(file);
+                    console.log('✅ Loaded:', file);
+                } catch (error) {
+                    console.error('❌ Failed to load:', file, error);
+                }
+            }
+            
+            console.log('🎯 All test files loaded');
+        }
+        
+        // Load tests when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', loadAllTests);
+        } else {
+            loadAllTests();
+        }
+    </script>
+
+    <script>
+        // Test execution and UI management
+        const UI = {
+            runButton: document.getElementById('runTestsBtn'),
+            progressContainer: document.getElementById('progressContainer'),
+            progressBar: document.getElementById('progressBar'),
+            progressText: document.getElementById('progressText'),
+            console: document.getElementById('console'),
+            categoriesContainer: document.getElementById('testCategories'),
+            summary: document.getElementById('summary'),
+            totalTestsSpan: document.getElementById('totalTests'),
+            passedTestsSpan: document.getElementById('passedTests'),
+            failedTestsSpan: document.getElementById('failedTests'),
+            summaryMessage: document.getElementById('summaryMessage'),
+
+            init() {
+                this.runButton.addEventListener('click', this.runAllTests.bind(this));
+            },
+
+            log(message, type = 'info') {
+                const timestamp = new Date().toLocaleTimeString();
+                const color = type === 'error' ? '#ff6b6b' : type === 'success' ? '#51cf66' : '#74c0fc';
+                this.console.innerHTML += `<div style="color: ${color};">[${timestamp}] ${message}</div>`;
+                this.console.scrollTop = this.console.scrollHeight;
+            },
+
+            updateProgress(current, total) {
+                const percentage = Math.round((current / total) * 100);
+                this.progressBar.style.width = `${percentage}%`;
+                this.progressText.textContent = `${percentage}% (${current}/${total})`;
+            },
+
+            createCategoryUI(category) {
+                const categoryDiv = document.createElement('div');
+                categoryDiv.className = 'test-category';
+                categoryDiv.innerHTML = `
+                    <div class="category-header">
+                        <span class="category-icon">${category.failed === 0 ? '✅' : '❌'}</span>
+                        <span class="category-title">${category.name}</span>
+                        <span class="category-stats">${category.passed}/${category.tests.length} passed</span>
+                    </div>
+                    <div class="category-description">${category.description}</div>
+                    <div class="test-list">
+                        ${category.tests.map(test => `
+                            <div class="test-item">
+                                <span class="test-status">${test.passed ? '✅' : '❌'}</span>
+                                <span class="test-name">${test.name}</span>
+                            </div>
+                            ${test.error ? `<div class="test-error">Error: ${test.error}</div>` : ''}
+                        `).join('')}
+                    </div>
+                `;
+                this.categoriesContainer.appendChild(categoryDiv);
+                
+                // Animate in
+                setTimeout(() => {
+                    categoryDiv.style.display = 'block';
+                    categoryDiv.style.opacity = '0';
+                    categoryDiv.style.transform = 'translateY(20px)';
+                    categoryDiv.style.transition = 'all 0.3s ease';
+                    
+                    requestAnimationFrame(() => {
+                        categoryDiv.style.opacity = '1';
+                        categoryDiv.style.transform = 'translateY(0)';
+                    });
+                }, category.index * 100);
+            },
+
+            showSummary(results) {
+                this.totalTestsSpan.textContent = results.totalTests;
+                this.passedTestsSpan.textContent = results.passedTests;
+                this.failedTestsSpan.textContent = results.failedTests;
+                
+                const passRate = Math.round((results.passedTests / results.totalTests) * 100);
+                const duration = Date.now() - results.startTime;
+                
+                let message = '';
+                if (passRate === 100) {
+                    message = `🎉 All tests passed! Completed in ${duration}ms`;
+                    this.summaryMessage.style.color = '#22c55e';
+                } else if (passRate >= 80) {
+                    message = `⚠️ Most tests passed (${passRate}%). Review failed tests.`;
+                    this.summaryMessage.style.color = '#f59e0b';
+                } else {
+                    message = `❌ Many tests failed (${passRate}% pass rate). Needs attention.`;
+                    this.summaryMessage.style.color = '#ef4444';
+                }
+                
+                this.summaryMessage.textContent = message;
+                this.summary.style.display = 'block';
+            },
+
+            async runAllTests() {
+                // Reset UI
+                this.runButton.disabled = true;
+                this.runButton.textContent = '🔄 Running Tests...';
+                this.progressContainer.style.display = 'block';
+                this.console.style.display = 'block';
+                this.console.innerHTML = '';
+                this.categoriesContainer.innerHTML = '';
+                this.summary.style.display = 'none';
+
+                this.log('🚀 Starting EO List Extension Test Suite', 'info');
+                
+                // Override console.log to capture test output
+                const originalLog = console.log;
+                console.log = (...args) => {
+                    this.log(args.join(' '));
+                    originalLog.apply(console, args);
+                };
+
+                try {
+                    // Wait for all test categories to complete
+                    await this.waitForTestCompletion();
+                    
+                    // Show results
+                    this.displayResults();
+                    
+                } catch (error) {
+                    this.log(`❌ Test execution failed: ${error.message}`, 'error');
+                } finally {
+                    // Restore console.log
+                    console.log = originalLog;
+                    
+                    this.runButton.disabled = false;
+                    this.runButton.textContent = '▶️ Run All Tests';
+                    this.log('✅ Test suite completed', 'success');
+                }
+            },
+
+            async waitForTestCompletion() {
+                return new Promise((resolve) => {
+                    let attempts = 0;
+                    const maxAttempts = 100; // 10 seconds max wait
+                    
+                    const checkCompletion = () => {
+                        attempts++;
+                        
+                        if (window.TestRunner && window.TEST_RESULTS && window.TEST_RESULTS.totalTests > 0) {
+                            // Wait a bit more to ensure all async tests complete
+                            setTimeout(resolve, 500);
+                        } else if (attempts >= maxAttempts) {
+                            console.error('Test completion timeout - tests may not have loaded properly');
+                            resolve();
+                        } else {
+                            setTimeout(checkCompletion, 100);
+                        }
+                    };
+                    checkCompletion();
+                });
+            },
+
+            displayResults() {
+                const results = window.TEST_RESULTS;
+                
+                // Update progress to 100%
+                this.updateProgress(results.totalTests, results.totalTests);
+                
+                // Create category UIs
+                results.categories.forEach((category, index) => {
+                    category.index = index;
+                    this.createCategoryUI(category);
+                });
+                
+                // Show summary
+                setTimeout(() => {
+                    this.showSummary(results);
+                }, results.categories.length * 100 + 500);
+            }
+        };
+
+        // Initialize UI when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            UI.init();
+        });
+
+        // Auto-run tests if requested via URL parameter
+        if (window.location.search.includes('autorun=true')) {
+            document.addEventListener('DOMContentLoaded', () => {
+                setTimeout(() => UI.runAllTests(), 1000);
+            });
+        }
+    </script>
+</body>
+</html>

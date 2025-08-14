@@ -43,8 +43,49 @@
   }
 
   function findEOListButton() {
-    const candidates = Array.from(document.querySelectorAll('button, a, .k-button, .btn'));
-    return candidates.find(el => /\bEO\s*List\b/i.test(el.textContent || '')) || null;
+    // Multiple strategies to find EO List button with fallbacks
+    const selectors = [
+      'button, a, .k-button, .btn',
+      '[role="button"]',
+      'input[type="button"], input[type="submit"]',
+      '*[onclick*="EO"], *[onclick*="eo"]'
+    ];
+
+    // Multiple text patterns to match various button formats
+    const textPatterns = [
+      /\bEO\s*List\b/i,           // "EO List" with word boundaries
+      /EO.*List/i,                // "EO" followed by "List" 
+      /Early.*Out.*List/i,        // "Early Out List"
+      /^EO\s*$|^EO List$/i,       // Exact matches
+      /EO/i                       // Just "EO" as last resort
+    ];
+
+    for (const selector of selectors) {
+      try {
+        const candidates = Array.from(document.querySelectorAll(selector));
+        for (const pattern of textPatterns) {
+          const button = candidates.find(el => {
+            const text = (el.textContent || '').trim();
+            const value = (el.value || '').trim();
+            const title = (el.title || '').trim();
+            const ariaLabel = (el.getAttribute('aria-label') || '').trim();
+            
+            return pattern.test(text) || pattern.test(value) || 
+                   pattern.test(title) || pattern.test(ariaLabel);
+          });
+          
+          if (button) {
+            log('Found EO List button with pattern:', pattern, 'element:', button);
+            return button;
+          }
+        }
+      } catch (error) {
+        log('Error searching with selector:', selector, error);
+      }
+    }
+    
+    log('No EO List button found with any pattern');
+    return null;
   }
 
   function ensureButton(dialogEl) {
@@ -93,16 +134,78 @@
   }
 
   async function tryOpenCellThenInject() {
-    const cells = Array.from(document.querySelectorAll('td, div'));
-    const target = cells.find(el => /\b\d{1,2}:\d{2}\s*(am|pm)\b/i.test(el.textContent || ''));
+    const target = findShiftCell();
     if (target) {
+      log('Clicking shift cell:', target.textContent?.trim());
       target.click();
       await new Promise(r => setTimeout(r, 400));
       const dlg = queryShiftDialog();
       if (dlg) ensureButton(dlg);
       return true;
     }
+    log('No shift cell found to open');
     return false;
+  }
+
+  function findShiftCell() {
+    // Multiple strategies to find shift cells with various time formats
+    const selectors = [
+      'td, div',                    // Standard table cells and divs
+      '.calendar-cell, .day-cell',  // Common calendar cell classes
+      '[role="gridcell"]',          // Semantic calendar cells
+      '.shift, .schedule-item',     // Schedule-specific classes
+      '*[data-time], *[data-shift]' // Data attributes
+    ];
+
+    // Various time patterns the site might use
+    const timePatterns = [
+      /\b\d{1,2}:\d{2}\s*(am|pm)\b/i,                    // "8:00pm"
+      /\b\d{1,2}:\d{2}\s*(am|pm)\s*-\s*\d{1,2}:\d{2}\s*(am|pm)\b/i, // "8:00pm - 4:00am"
+      /\b\d{1,2}:\d{2}-\d{1,2}:\d{2}/i,                  // "20:00-04:00" (24hr)
+      /\b\d{1,2}(:\d{2})?\s*(am|pm)/i,                   // "8pm" or "8:00pm"
+      /\b(morning|afternoon|evening|night|am|pm)\b/i,    // Text-based times
+      /\d{1,2}\/\d{1,2}\/\d{4}.*\d{1,2}:\d{2}/i,        // Date with time
+      /shift|schedule|work/i                             // Schedule keywords
+    ];
+
+    for (const selector of selectors) {
+      try {
+        const cells = Array.from(document.querySelectorAll(selector));
+        log(`Checking ${cells.length} cells with selector: ${selector}`);
+        
+        for (const pattern of timePatterns) {
+          const target = cells.find(el => {
+            const text = (el.textContent || '').trim();
+            const title = (el.title || '').trim();
+            const dataTime = (el.getAttribute('data-time') || '').trim();
+            
+            // Also check if element is clickable and visible
+            const isClickable = el.tagName === 'TD' || el.tagName === 'DIV' || 
+                               el.tagName === 'BUTTON' || el.tagName === 'A' ||
+                               el.onclick || el.getAttribute('onclick') ||
+                               el.style.cursor === 'pointer';
+                               
+            const isVisible = el.offsetParent !== null && 
+                             el.style.display !== 'none' &&
+                             el.style.visibility !== 'hidden';
+            
+            const hasTimePattern = pattern.test(text) || pattern.test(title) || pattern.test(dataTime);
+            
+            return hasTimePattern && isClickable && isVisible;
+          });
+          
+          if (target) {
+            log('Found shift cell with pattern:', pattern, 'text:', target.textContent?.trim());
+            return target;
+          }
+        }
+      } catch (error) {
+        log('Error searching cells with selector:', selector, error);
+      }
+    }
+    
+    log('No shift cell found with any pattern');
+    return null;
   }
 
   function handleAction(dialogEl) {
