@@ -320,7 +320,7 @@
     panel.innerHTML = `
       <div class="eo-status-row">
         <span id="eo-status-text">No EO scheduled.</span>
-        <button id="eo-cancel-btn" class="eo-asap-btn eo-cancel-btn" title="Cancel scheduled EO">Cancel</button>
+        <button id="eo-cancel-btn" class="eo-asap-btn eo-cancel-btn" title="Cancel scheduled EO" style="display: none;">Cancel</button>
       </div>`;
     document.body.appendChild(panel);
     panel.querySelector('#eo-cancel-btn').addEventListener('click', () => {
@@ -339,14 +339,23 @@
     const panel = document.getElementById('eo-status');
     if (!panel) return;
     const text = panel.querySelector('#eo-status-text');
+    const cancelBtn = panel.querySelector('#eo-cancel-btn');
+    
     if (!status || (!status.next && !status.nextPre)) {
       panel._current = null;
       text.textContent = 'No EO scheduled.';
+      // Hide cancel button when no EO is scheduled
+      if (cancelBtn) cancelBtn.style.display = 'none';
       return;
     }
+    
     const when = status.next ? new Date(status.next.fireTime) : null;
     const pre = status.nextPre ? new Date(status.nextPre.preTime) : null;
     panel._current = status.next || null;
+    
+    // Show cancel button when EO is scheduled
+    if (cancelBtn) cancelBtn.style.display = 'inline-block';
+    
     if (pre && when) {
       text.textContent = `Precision: ${pre.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} → EO ${when.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} (${status.next.dateISO})`;
     } else if (when) {
