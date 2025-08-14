@@ -8,6 +8,28 @@
     console.log('[EO List]', ...args);
   }
 
+  function isOnRosterPage() {
+    const currentUrl = window.location.href;
+    
+    // Check if we're on a login page (should not show buttons)
+    if (/\/ess\/login\.aspx/i.test(currentUrl)) {
+      return false;
+    }
+    
+    // Check if we're on the roster page (target page for buttons)
+    if (/#\/roster/i.test(currentUrl)) {
+      return true;
+    }
+    
+    // Also allow if we're on the main VR page (could navigate to roster)
+    if (/\/ess\/Default\.aspx/i.test(currentUrl)) {
+      return true;
+    }
+    
+    // Default to false for other pages
+    return false;
+  }
+
   function queryShiftDialog() {
     // Look for a dialog that shows the shift details (based on screenshots)
     // It appears as a modal with a Close button and actions on the right.
@@ -229,24 +251,35 @@
   }
 
   function scan() {
+    // Only scan and inject buttons if we're on the roster page
+    if (!isOnRosterPage()) {
+      log('Not on roster page, skipping button injection');
+      return;
+    }
+    
     const dialog = queryShiftDialog();
     if (!dialog) return;
     ensureButton(dialog);
   }
 
-  // Observe for modal openings
-  const mo = new MutationObserver(() => scan());
-  mo.observe(document.documentElement, { subtree: true, childList: true });
-  scan();
+  // Only start observing and initialize if we're on the correct page
+  if (isOnRosterPage()) {
+    // Observe for modal openings
+    const mo = new MutationObserver(() => scan());
+    mo.observe(document.documentElement, { subtree: true, childList: true });
+    scan();
 
-  // ---- UI helpers ----
-  initStatusPanel();
-  chrome.runtime.sendMessage({ type: 'EO_GET_STATUS' }, (s) => updateStatusPanel(s));
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg?.type === 'EO_STATUS_UPDATED') {
-      updateStatusPanel(msg.payload);
-    }
-  });
+    // ---- UI helpers ----
+    initStatusPanel();
+    chrome.runtime.sendMessage({ type: 'EO_GET_STATUS' }, (s) => updateStatusPanel(s));
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (msg?.type === 'EO_STATUS_UPDATED') {
+        updateStatusPanel(msg.payload);
+      }
+    });
+  } else {
+    log('Not on roster page, extension functionality disabled');
+  }
 
   function showToast(message, actions = []) {
     let toast = document.getElementById('eo-toast');
