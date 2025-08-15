@@ -57,6 +57,8 @@ Before committing changes, always run:
 - Pre-alarm names: `EO_PRE_${dateISO}_${start}` 
 - Always clean up storage when canceling alarms
 - Update badge status after alarm changes
+- **Tab Management**: Uses existing VR tabs instead of creating new ones (prevents unwanted tab spawning)
+- Prefers active tab if already on VR site, falls back to any VR tab, only creates new tab if none exist
 
 #### `src/content.js`
 - Query shift dialogs with multiple selector strategies
@@ -67,8 +69,10 @@ Before committing changes, always run:
 #### `src/clicker.js`
 - Handle login page detection and auto-login
 - Click sequence: Find shift → Open dialog → EO List → Submit
-- Use sleep delays between actions (400-500ms typical)
-- Log all major actions for debugging
+- Use sleep delays between actions (800-1000ms for EO modal loading)
+- Enhanced dialog detection with multiple strategies including `.di_eo_list` button containers
+- Advanced Submit button detection with 5-second timeout and retry logic
+- Log all major actions for debugging with ✅/❌ status indicators
 
 ### Security Considerations
 - Only access `vr.hollywoodcasinocolumbus.com` domain
@@ -89,10 +93,12 @@ Before committing changes, always run:
 - Verify alarm scheduling in Chrome DevTools > Application > Storage
 
 ### Common Issues & Solutions
-- **Modal not detected**: Add more selector fallbacks to `queryShiftDialog()`
+- **Modal not detected**: Use enhanced dialog detection strategies in `ensureShiftDialog()` - looks for `.di_eo_list` button containers and shift action button groups
+- **Submit button not found**: Uses `waitForEOModalAndSubmit()` with multiple detection strategies and "I want to be on the list for EO" text detection
 - **Time parsing fails**: Update regex patterns in `parseShiftDateTime()`
 - **Login issues**: Verify credential storage and field selectors
 - **Timing precision**: Adjust `PRE_LEAD_MS` constant if needed
+- **New tab spawning**: Fixed by implementing `findOrCreateVRTab()` function that reuses existing tabs
 
 ### Maintenance Notes
 - Portal UI changes may require selector updates
@@ -105,3 +111,32 @@ Before committing changes, always run:
 - Update `manifest.json` version before publishing
 - Test thoroughly on target portal before deployment
 - Keep credentials secure during development/testing
+
+## Recent Fixes (August 2025)
+### MacBook Setup & Critical Bug Fixes
+- **Issue**: Extension opening new tabs instead of using current tab
+  - **Fix**: Added `findOrCreateVRTab()` function to reuse existing VR tabs
+  - **Files**: `src/background.js` - modified `triggerRun()`, `triggerPrewarm()`, `triggerPrecision()`
+
+- **Issue**: EO submission failing - Submit button not found after clicking "EO List"
+  - **Root Cause**: Dialog detection failing, Submit modal timing issues
+  - **Fix**: Enhanced dialog detection with 4 strategies, improved Submit button detection with 5-second retry
+  - **Files**: `src/clicker.js` - added `ensureShiftDialog()`, `waitForEOModalAndSubmit()`, `tryFindSubmitInContainer()`
+  - **Key**: Look for "I want to be on the list for EO" text to identify EO submission modal
+
+- **Debugging Improvements**: Added comprehensive logging with ✅/❌ status indicators and modal state tracking
+
+## Next Testing Steps
+### Scheduled EO Testing
+1. **Schedule Future EO**: Test alarm functionality by scheduling an EO for a shift 2+ hours in the future
+2. **Verify Automation**: Confirm automated EO submission works at the scheduled time
+3. **Cross-Platform Testing**: If working on multiple devices, verify functionality on Windows PC
+4. **Edge Case Testing**: Test with different shift times and date formats
+
+### Manual Testing Verification
+- ✅ MacBook setup and extension loading
+- ✅ Manual EO ASAP button functionality  
+- ✅ Tab reuse instead of new tab creation
+- ✅ Dialog detection and Submit button clicking
+- 🟡 **Next**: Scheduled alarm-based EO automation
+- 🟡 **Next**: Cross-platform compatibility verification

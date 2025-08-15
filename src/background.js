@@ -130,10 +130,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
+async function findOrCreateVRTab(url) {
+  // Look for existing VR tabs
+  const tabs = await chrome.tabs.query({});
+  const vrTabs = tabs.filter(t => typeof t.url === 'string' && t.url.includes('vr.hollywoodcasinocolumbus.com'));
+  
+  // Prefer the active tab if it's a VR tab
+  const activeTab = vrTabs.find(t => t.active);
+  if (activeTab) {
+    // Navigate to the target URL if needed
+    if (!activeTab.url.includes('#/roster')) {
+      await chrome.tabs.update(activeTab.id, { url });
+    }
+    // Bring tab to foreground
+    await chrome.tabs.update(activeTab.id, { active: true });
+    return await chrome.tabs.get(activeTab.id);
+  }
+  
+  // Use any existing VR tab
+  if (vrTabs.length > 0) {
+    const existingTab = vrTabs[0];
+    // Navigate to the target URL
+    await chrome.tabs.update(existingTab.id, { url, active: true });
+    return await chrome.tabs.get(existingTab.id);
+  }
+  
+  // Only create new tab if no VR tabs exist
+  return await chrome.tabs.create({ url, active: true });
+}
+
 async function triggerRun(dateISO, start, url) {
-  const tab = await chrome.tabs.create({ url });
-  // Wait a bit for the page to load before injecting runner
+  // Try to find an existing VR tab instead of always creating new ones
+  let tab = await findOrCreateVRTab(url);
   const tabId = tab.id;
+  
+  // Wait for the page to load before injecting runner
   const done = new Promise(resolve => {
     const listener = (updatedTabId, info) => {
       if (updatedTabId === tabId && info.status === 'complete') {
@@ -143,7 +174,12 @@ async function triggerRun(dateISO, start, url) {
     };
     chrome.tabs.onUpdated.addListener(listener);
   });
-  await done;
+  
+  // If tab was just created or navigated, wait for complete status
+  if (tab.status !== 'complete') {
+    await done;
+  }
+  
   await chrome.scripting.executeScript({
     target: { tabId },
     files: ['src/clicker.js']
@@ -151,8 +187,10 @@ async function triggerRun(dateISO, start, url) {
 }
 
 async function triggerPrewarm(dateISO, start, url) {
-  const tab = await chrome.tabs.create({ url });
+  // Use the same logic to find or create VR tab
+  let tab = await findOrCreateVRTab(url);
   const tabId = tab.id;
+  
   const done = new Promise(resolve => {
     const listener = (updatedTabId, info) => {
       if (updatedTabId === tabId && info.status === 'complete') {
@@ -162,10 +200,48 @@ async function triggerPrewarm(dateISO, start, url) {
     };
     chrome.tabs.onUpdated.addListener(listener);
   });
-  await done;
+  
+  // If tab was just created or navigated, wait for complete status
+  if (tab.status !== 'complete') {
+    await done;
+  }
+  
   await chrome.scripting.executeScript({
     target: { tabId },
     files: ['src/prewarm.js']
+  });
+}
+
+async function triggerPrecision(dateISO, start, url, fireTime) {
+  // Use the same logic to find or create VR tab for precision timing
+  let tab = await findOrCreateVRTab(url);
+  const tabId = tab.id;
+  
+  const done = new Promise(resolve => {
+    const listener = (updatedTabId, info) => {
+      if (updatedTabId === tabId && info.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+  
+  // If tab was just created or navigated, wait for complete status
+  if (tab.status !== 'complete') {
+    await done;
+  }
+  
+  // Send message to precise.js with target time
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ['src/precise.js']
+  });
+  
+  // Send precision timing message
+  await chrome.tabs.sendMessage(tabId, {
+    type: 'EO_PREP',
+    payload: { targetMs: fireTime }
   });
 }
 
