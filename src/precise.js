@@ -4,6 +4,77 @@
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const log = (...a) => console.log('[EO Precise]', ...a);
 
+  // Button location caching utilities for speed optimization
+  function getCachedSelector(key) {
+    try {
+      const cached = localStorage.getItem(key);
+      return cached ? JSON.parse(cached) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function setCachedSelector(key, element, context) {
+    try {
+      if (!element || !context) return;
+      
+      // Generate relative selector options
+      let selector = null;
+      
+      // Try class-based selector first (most reliable)
+      if (element.className) {
+        const classes = element.className.split(' ').filter(c => c.trim());
+        if (classes.length > 0) {
+          selector = `.${classes.join('.')}`;
+        }
+      }
+      
+      // Fallback to tag + attribute selector
+      if (!selector && element.tagName) {
+        if (element.id) {
+          selector = `#${element.id}`;
+        } else if (element.getAttribute('role')) {
+          selector = `${element.tagName.toLowerCase()}[role="${element.getAttribute('role')}"]`;
+        } else {
+          selector = element.tagName.toLowerCase();
+        }
+      }
+      
+      if (selector) {
+        localStorage.setItem(key, JSON.stringify({
+          selector: selector,
+          verified: Date.now(),
+          fallback: false
+        }));
+        log('Cached button selector:', key, selector);
+      }
+    } catch (e) {
+      log('Failed to cache selector:', e.message);
+    }
+  }
+
+  function tryFastClick(context, text, cacheKey) {
+    const cached = getCachedSelector(cacheKey);
+    if (!cached || !cached.selector) return false;
+    
+    try {
+      const element = context.querySelector(cached.selector);
+      if (element && element.offsetParent !== null) {
+        // Verify text content matches (basic validation)
+        const elementText = (element.textContent || '').toLowerCase();
+        if (elementText.includes(text.toLowerCase())) {
+          log('Fast click using cached selector:', cached.selector);
+          element.click();
+          return true;
+        }
+      }
+    } catch (e) {
+      log('Cached selector failed:', e.message);
+    }
+    
+    return false;
+  }
+
   function isLogin() {
     return document.getElementById('txtPassword') && document.getElementById('txtUserName');
   }
@@ -92,6 +163,12 @@
   function clickByText(text) {
     log('Searching for button with text:', text);
     
+    // Fast path: Try cached selector first
+    const cacheKey = `button_cache_${text.toLowerCase().replace(/\s+/g, '_')}`;
+    if (tryFastClick(document, text, cacheKey)) {
+      return true;
+    }
+    
     // Optimized XPath strategies with performance logging
     const lowerText = text.toLowerCase();
     const xpathStrategies = [
@@ -117,6 +194,8 @@
         const el = res.singleNodeValue;
         if (el) {
           log('Found element with XPath:', xpath, 'text content:', el.textContent?.trim());
+          // Cache this successful find for future use
+          setCachedSelector(cacheKey, el, document);
           el.click();
           return true;
         }
@@ -144,6 +223,8 @@
         
         if (el) {
           log('Found element with CSS selector:', selector, 'text content:', el.textContent?.trim());
+          // Cache this successful find for future use
+          setCachedSelector(cacheKey, el, document);
           el.click();
           return true;
         }

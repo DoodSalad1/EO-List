@@ -5,6 +5,77 @@
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+  // Button location caching utilities for speed optimization
+  function getCachedSelector(key) {
+    try {
+      const cached = localStorage.getItem(key);
+      return cached ? JSON.parse(cached) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function setCachedSelector(key, element, context) {
+    try {
+      if (!element || !context) return;
+      
+      // Generate relative selector options
+      let selector = null;
+      
+      // Try class-based selector first (most reliable)
+      if (element.className) {
+        const classes = element.className.split(' ').filter(c => c.trim());
+        if (classes.length > 0) {
+          selector = `.${classes.join('.')}`;
+        }
+      }
+      
+      // Fallback to tag + attribute selector
+      if (!selector && element.tagName) {
+        if (element.id) {
+          selector = `#${element.id}`;
+        } else if (element.getAttribute('role')) {
+          selector = `${element.tagName.toLowerCase()}[role="${element.getAttribute('role')}"]`;
+        } else {
+          selector = element.tagName.toLowerCase();
+        }
+      }
+      
+      if (selector) {
+        localStorage.setItem(key, JSON.stringify({
+          selector: selector,
+          verified: Date.now(),
+          fallback: false
+        }));
+        log('Cached button selector:', key, selector);
+      }
+    } catch (e) {
+      log('Failed to cache selector:', e.message);
+    }
+  }
+
+  function tryFastClick(context, text, cacheKey) {
+    const cached = getCachedSelector(cacheKey);
+    if (!cached || !cached.selector) return false;
+    
+    try {
+      const element = context.querySelector(cached.selector);
+      if (element && element.offsetParent !== null) {
+        // Verify text content matches (basic validation)
+        const elementText = (element.textContent || '').toLowerCase();
+        if (elementText.includes(text.toLowerCase())) {
+          log('Fast click using cached selector:', cached.selector);
+          element.click();
+          return true;
+        }
+      }
+    } catch (e) {
+      log('Cached selector failed:', e.message);
+    }
+    
+    return false;
+  }
+
   function isLoginPage() {
     const text = document.body ? document.body.innerText || '' : '';
     const hasUser = document.getElementById('txtUserName') || document.querySelector('input[name*="user" i], input[id*="user" i], input[type="email"]');
@@ -45,6 +116,12 @@
     const searchRoot = root || document;
     log('Search context:', searchRoot === document ? 'entire document' : 'dialog/root element');
     
+    // Fast path: Try cached selector first
+    const cacheKey = `button_cache_${text.toLowerCase().replace(/\s+/g, '_')}`;
+    if (tryFastClick(searchRoot, text, cacheKey)) {
+      return true;
+    }
+    
     // Optimized XPath strategies ordered by performance (fastest first)
     const lowerText = text.toLowerCase();
     const xpathStrategies = [
@@ -73,6 +150,8 @@
         const el = result.singleNodeValue;
         if (el) {
           log('Found button with XPath:', xpath, 'element:', el.tagName, el.textContent?.trim());
+          // Cache this successful find for future use
+          setCachedSelector(cacheKey, el, searchRoot);
           el.click();
           return true;
         }
@@ -99,6 +178,8 @@
         
         if (el) {
           log('Found button with CSS selector:', selector, 'element:', el.tagName, el.textContent?.trim());
+          // Cache this successful find for future use
+          setCachedSelector(cacheKey, el, searchRoot);
           el.click();
           return true;
         }
