@@ -53,22 +53,29 @@ Before committing changes, use the comprehensive test suites:
 - Alarm names format: `EO_ALARM_${dateISO}_${start}`
 - Pre-alarm names: `EO_PRE_${dateISO}_${start}` 
 - Always clean up storage when canceling alarms
-- Update badge status after alarm changes
+- **Result Handling**: Processes submission results and sends appropriate notifications
+- **Daily Persistence**: Stores submission results as `eo_result_YYYY-MM-DD` for status tracking
+- **Enhanced Badge**: Badge reflects actual submission status (✓ success, ✗ failed) not just scheduling
 - **Tab Management**: Uses existing VR tabs instead of creating new ones (prevents unwanted tab spawning)
 - Prefers active tab if already on VR site, falls back to any VR tab, only creates new tab if none exist
 
 #### `src/content.js`
+- **Universal Status**: Works on ALL VR pages including login screen (not just roster)
+- **Smart Status Display**: Prioritizes submission results over scheduled alarms
+- **Color-Coded Feedback**: Green (success), Red (failed), Orange (unverified), Gray (scheduled)
 - Query shift dialogs with multiple selector strategies
 - Parse date from headings like "Schedule for Sun 08/10/2025"
 - Parse time from first occurrence in dialog text
-- Maintain floating button and status panel
+- Maintain floating button and status panel (roster page only)
 
 #### `src/clicker.js`
 - Handle login page detection and auto-login
+- **Smart Pre-Check**: Detects if already on EO list before attempting submission (prevents unnecessary attempts)
 - Click sequence: Find shift → Open dialog → EO List → Submit with verification
 - **Success Verification**: 4-strategy verification system (text, modal state, button changes, confirmations)
 - **Retry Logic**: 3-attempt system with infinite loop protection (30s timeout, attempt limits)
 - **DOM Caching**: Advanced element caching for instant button access (2-8ms cache hits)
+- **Result Communication**: Sends detailed submission results to background script
 - Optimized timing delays for competitive speed (200ms EO modal, 25ms polling intervals)
 - Enhanced dialog detection with multiple strategies including `.di_eo_list` button containers
 - Advanced Submit button detection with 5-second timeout and retry logic
@@ -93,6 +100,9 @@ Before committing changes, use the comprehensive test suites:
 - Verify alarm scheduling in Chrome DevTools > Application > Storage
 
 ### Common Issues & Solutions
+- **Already on EO list**: Extension now detects "You are on the list for EO" text and skips submission
+- **No status visibility**: Status panel now works on ALL VR pages including login screen
+- **Missing notifications**: Complete notification system for success/failure/already-submitted states
 - **Modal not detected**: Use enhanced dialog detection strategies in `ensureShiftDialog()` - looks for `.di_eo_list` button containers and shift action button groups
 - **Submit button not found**: Uses `waitForEOModalAndSubmit()` with multiple detection strategies and "I want to be on the list for EO" text detection
 - **Time parsing fails**: Update regex patterns in `parseShiftDateTime()`
@@ -196,6 +206,15 @@ Before committing changes, use the comprehensive test suites:
 - 🎯 **Production Ready**: All critical features implemented and tested
 
 ### Latest Implementation (August 2025)
+
+#### Version 0.1.2 - Universal Status & Smart Detection
+- **Critical Fix**: Added "already on EO list" detection to prevent unnecessary submissions
+- **Universal Status**: Status panel now works on ALL VR pages including login screen
+- **Result Communication**: Complete submission result feedback with notifications
+- **Enhanced Messaging**: Color-coded status with success/failure/warning indicators
+- **Badge Updates**: Badge reflects actual submission status (✓/✗) not just scheduling
+
+#### Previous Commits
 - **Commits**: `7c3998e` (Button caching), `17fa43d` (Performance optimization)
 - **Features Added**: Success verification, retry logic, DOM caching, comprehensive testing
 - **Performance**: 60-90% speed improvement with cache hits

@@ -796,6 +796,14 @@
     }
     
     const successIndicators = [
+      // Check if already on EO list (highest priority)
+      {
+        name: 'Already on EO list confirmation',
+        check: () => {
+          return checkAlreadyOnEOList();
+        }
+      },
+      
       // Text-based confirmation patterns
       {
         name: 'Success text confirmation',
@@ -805,7 +813,8 @@
             /successfully added to.*early out/i,
             /you are now on.*eo list/i,
             /added to.*eo.*list/i,
-            /early out.*request.*submitted/i
+            /early out.*request.*submitted/i,
+            /you\s+are\s+on\s+the\s+list\s+for\s+eo/i  // Add the exact pattern from screenshot
           ];
           return patterns.some(pattern => pattern.test(bodyText));
         }
@@ -1157,6 +1166,65 @@
     return null;
   }
 
+  // Check if already on EO list to prevent unnecessary submissions
+  function checkAlreadyOnEOList() {
+    log('Checking if already on EO list...');
+    
+    // Multiple strategies to detect "already on EO list" status
+    const strategies = [
+      // Strategy 1: Look for explicit "You are on the list for EO" text
+      () => {
+        const bodyText = document.body.textContent || '';
+        return /you\s+are\s+on\s+the\s+list\s+for\s+eo/i.test(bodyText);
+      },
+      
+      // Strategy 2: Look for modal/dialog with EO confirmation
+      () => {
+        const modals = document.querySelectorAll('div[role="dialog"], .modal, .k-window-content, .ui-dialog-content');
+        return Array.from(modals).some(modal => {
+          const text = modal.textContent || '';
+          return modal.offsetParent !== null && /you\s+are\s+on\s+the\s+list\s+for\s+eo/i.test(text);
+        });
+      },
+      
+      // Strategy 3: Look for status indicators or checkmarks near EO
+      () => {
+        const statusElements = document.querySelectorAll('.status, .confirmation, [class*="success"], [class*="confirm"]');
+        return Array.from(statusElements).some(el => {
+          const text = el.textContent || '';
+          return el.offsetParent !== null && 
+                 (/eo/i.test(text) && (/list/i.test(text) || /confirmed/i.test(text) || /added/i.test(text)));
+        });
+      },
+      
+      // Strategy 4: Look for any container with both "EO" and "list" confirmation text
+      () => {
+        const allContainers = document.querySelectorAll('div, span, p, section');
+        return Array.from(allContainers).some(container => {
+          const text = container.textContent || '';
+          const isVisible = container.offsetParent !== null;
+          return isVisible && 
+                 /eo/i.test(text) && 
+                 (/on.*list/i.test(text) || /list.*for/i.test(text) || /added.*to.*list/i.test(text));
+        });
+      }
+    ];
+    
+    for (const strategy of strategies) {
+      try {
+        if (strategy()) {
+          log('✅ Already on EO list detected!');
+          return true;
+        }
+      } catch (error) {
+        log('⚠️ Error in EO list detection strategy:', error.message);
+      }
+    }
+    
+    log('❌ Not currently on EO list');
+    return false;
+  }
+
   async function run() {
     log('Starting EO automation run...');
     log('Current URL:', window.location.href);
@@ -1173,6 +1241,34 @@
       log('Login successful, proceeding to roster');
       // Give time to reach roster after login (optimized)
       await sleep(300);
+    }
+
+    // CRITICAL: Check if already on EO list before attempting submission
+    if (checkAlreadyOnEOList()) {
+      log('🎉 Already on EO list - no submission needed!');
+      
+      // Send success result to background script
+      try {
+        const successMessage = {
+          type: 'EO_SUBMISSION_RESULT',
+          payload: {
+            success: true,
+            verified: true,
+            attempts: 0,
+            elapsed: 0,
+            error: null,
+            timestamp: Date.now(),
+            url: window.location.href,
+            alreadyOnList: true
+          }
+        };
+        chrome.runtime.sendMessage(successMessage);
+        log('📤 Sent "already on list" status to background script');
+      } catch (error) {
+        log('⚠️ Failed to send already-on-list status:', error.message);
+      }
+      
+      return; // Exit early - no need to attempt submission
     }
 
     // Strategy 1: Look for existing open dialog first
@@ -1220,6 +1316,26 @@
       log(`⏱️ Total time elapsed: ${retryResult.elapsed}ms`);
       log('Final state - available dialogs and buttons:');
       debugLogAvailableButtons(document);
+    }
+    
+    // Send result to background script for notifications and persistence
+    try {
+      const resultMessage = {
+        type: 'EO_SUBMISSION_RESULT',
+        payload: {
+          success: retryResult.success,
+          verified: retryResult.verified || false,
+          attempts: retryResult.attempts || 0,
+          elapsed: retryResult.elapsed || 0,
+          error: retryResult.error || null,
+          timestamp: Date.now(),
+          url: window.location.href
+        }
+      };
+      chrome.runtime.sendMessage(resultMessage);
+      log('📤 Sent submission result to background script');
+    } catch (error) {
+      log('⚠️ Failed to send result to background script:', error.message);
     }
   }
 

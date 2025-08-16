@@ -262,14 +262,13 @@
     ensureButton(dialog);
   }
 
-  // Only start observing and initialize if we're on the correct page
-  if (isOnRosterPage()) {
-    // Observe for modal openings
-    const mo = new MutationObserver(() => scan());
-    mo.observe(document.documentElement, { subtree: true, childList: true });
-    scan();
+  // Check if we're on any VR page (not just roster)
+  function isOnVRSite() {
+    return window.location.href.includes('vr.hollywoodcasinocolumbus.com');
+  }
 
-    // ---- UI helpers ----
+  if (isOnVRSite()) {
+    // Initialize status panel on all VR pages for universal status awareness
     initStatusPanel();
     chrome.runtime.sendMessage({ type: 'EO_GET_STATUS' }, (s) => updateStatusPanel(s));
     chrome.runtime.onMessage.addListener((msg) => {
@@ -277,8 +276,19 @@
         updateStatusPanel(msg.payload);
       }
     });
+
+    // Only start EO button functionality on roster page
+    if (isOnRosterPage()) {
+      // Observe for modal openings
+      const mo = new MutationObserver(() => scan());
+      mo.observe(document.documentElement, { subtree: true, childList: true });
+      scan();
+      log('EO button functionality enabled on roster page');
+    } else {
+      log('Status display enabled. EO buttons disabled on non-roster page.');
+    }
   } else {
-    log('Not on roster page, extension functionality disabled');
+    log('Not on VR site, extension disabled');
   }
 
   function showToast(message, actions = []) {
@@ -374,6 +384,38 @@
     const text = panel.querySelector('#eo-status-text');
     const cancelBtn = panel.querySelector('#eo-cancel-btn');
     
+    // Priority 1: Show today's submission result if available
+    if (status?.todayResult) {
+      const result = status.todayResult;
+      const timestamp = new Date(result.timestamp);
+      const timeStr = timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      
+      if (result.success) {
+        if (result.alreadyOnList) {
+          text.textContent = `✅ Already on EO list (checked at ${timeStr})`;
+          text.style.color = '#28a745'; // Green
+        } else if (result.verified) {
+          text.textContent = `✅ EO submitted successfully at ${timeStr}`;
+          text.style.color = '#28a745'; // Green
+        } else {
+          text.textContent = `⚠️ EO submitted at ${timeStr} (verification failed)`;
+          text.style.color = '#fd7e14'; // Orange
+        }
+      } else {
+        text.textContent = `❌ EO submission failed at ${timeStr} - ${result.error || 'Unknown error'}`;
+        text.style.color = '#dc3545'; // Red
+      }
+      
+      // Hide cancel button when showing submission results
+      if (cancelBtn) cancelBtn.style.display = 'none';
+      panel._current = null;
+      return;
+    }
+    
+    // Reset text color for non-result messages
+    text.style.color = '';
+    
+    // Priority 2: Show scheduled alarms (existing logic)
     if (!status || (!status.next && !status.nextPre)) {
       panel._current = null;
       text.textContent = 'No EO scheduled.';

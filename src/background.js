@@ -128,7 +128,72 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     getStatus().then(status => sendResponse(status));
     return true;
   }
+  if (msg?.type === 'EO_SUBMISSION_RESULT') {
+    handleSubmissionResult(msg.payload).then(() => {
+      // Response not needed for submission results
+    });
+    return false; // No async response needed
+  }
 });
+
+async function handleSubmissionResult(result) {
+  try {
+    // Store submission result with today's date as key
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    const resultKey = `eo_result_${today}`;
+    
+    const submissionData = {
+      ...result,
+      dateISO: today,
+      storedAt: Date.now()
+    };
+    
+    await chrome.storage.local.set({ [resultKey]: submissionData });
+    
+    // Send appropriate notification based on result
+    let notificationTitle = 'EO List';
+    let notificationMessage = '';
+    
+    if (result.success) {
+      if (result.alreadyOnList) {
+        notificationTitle = '✅ EO Already Submitted';
+        notificationMessage = 'You are already on the EO list - no further action needed!';
+      } else if (result.verified) {
+        notificationTitle = '✅ EO Success';
+        notificationMessage = `Successfully added to EO list! (${result.attempts} attempt${result.attempts > 1 ? 's' : ''}, ${result.elapsed}ms)`;
+      } else {
+        notificationTitle = '⚠️ EO Submitted';
+        notificationMessage = `EO submitted but verification failed. Please check portal to confirm. (${result.attempts} attempt${result.attempts > 1 ? 's' : ''})`;
+      }
+    } else {
+      notificationTitle = '❌ EO Failed';
+      notificationMessage = `EO submission failed after ${result.attempts} attempt${result.attempts > 1 ? 's' : ''}. ${result.error || 'Unknown error'}`;
+    }
+    
+    // Send notification
+    try {
+      await chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icon48.png',
+        title: notificationTitle,
+        message: notificationMessage
+      });
+    } catch (notificationError) {
+      console.error('Failed to send notification:', notificationError);
+    }
+    
+    // Update badge to reflect submission status
+    await updateBadge();
+    
+    // Broadcast updated status to all VR tabs
+    await broadcastStatus();
+    
+    console.log('Handled submission result:', result.success ? 'SUCCESS' : 'FAILED');
+    
+  } catch (error) {
+    console.error('Error handling submission result:', error);
+  }
+}
 
 async function findOrCreateVRTab(url) {
   // Look for existing VR tabs
@@ -302,7 +367,19 @@ async function getStatus() {
   preEntries.sort((a, b) => (a.preTime || 0) - (b.preTime || 0));
   const next = entries.find(e => (e.fireTime || 0) >= now) || null;
   const nextPre = preEntries.find(e => (e.preTime || 0) >= now) || null;
-  return { next, nextPre };
+  
+  // Get today's submission result
+  const today = new Date().toISOString().split('T')[0];
+  const resultKey = `eo_result_${today}`;
+  let todayResult = null;
+  try {
+    const resultData = await chrome.storage.local.get(resultKey);
+    todayResult = resultData[resultKey] || null;
+  } catch (error) {
+    console.error('Error fetching today\'s submission result:', error);
+  }
+  
+  return { next, nextPre, todayResult };
 }
 
 async function broadcastStatus() {
@@ -316,6 +393,31 @@ async function broadcastStatus() {
 
 async function updateBadge(status) {
   const s = status || await getStatus();
+  
+  // Check for today's submission result first (highest priority)
+  const today = new Date().toISOString().split('T')[0];
+  const resultKey = `eo_result_${today}`;
+  try {
+    const resultData = await chrome.storage.local.get(resultKey);
+    if (resultData[resultKey]) {
+      const result = resultData[resultKey];
+      if (result.success) {
+        // Green checkmark for successful submission
+        await chrome.action.setBadgeText({ text: '✓' });
+        await chrome.action.setBadgeBackgroundColor({ color: '#28a745' });
+        return;
+      } else {
+        // Red X for failed submission
+        await chrome.action.setBadgeText({ text: '✗' });
+        await chrome.action.setBadgeBackgroundColor({ color: '#dc3545' });
+        return;
+      }
+    }
+  } catch (error) {
+    console.error('Error checking submission results for badge:', error);
+  }
+  
+  // Fall back to existing alarm-based logic
   if (s?.nextPre) {
     try { await chrome.action.setBadgeText({ text: 'P' }); await chrome.action.setBadgeBackgroundColor({ color: '#0b74de' }); } catch {}
     return;
