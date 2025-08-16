@@ -173,6 +173,11 @@ async function triggerRun(dateISO, start, url) {
       }
     };
     chrome.tabs.onUpdated.addListener(listener);
+    // Add timeout to prevent infinite waiting
+    setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, 30000);
   });
   
   // If tab was just created or navigated, wait for complete status
@@ -199,6 +204,11 @@ async function triggerPrewarm(dateISO, start, url) {
       }
     };
     chrome.tabs.onUpdated.addListener(listener);
+    // Add timeout to prevent infinite waiting
+    setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, 30000);
   });
   
   // If tab was just created or navigated, wait for complete status
@@ -225,6 +235,11 @@ async function triggerPrecision(dateISO, start, url, fireTime) {
       }
     };
     chrome.tabs.onUpdated.addListener(listener);
+    // Add timeout to prevent infinite waiting
+    setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, 30000);
   });
   
   // If tab was just created or navigated, wait for complete status

@@ -32,7 +32,7 @@
     else document.forms[0]?.requestSubmit?.();
 
     for (let i = 0; i < 30; i += 1) {
-      await sleep(500);
+      await sleep(150);
       if (!isLoginPage()) return true;
     }
     return false;
@@ -45,13 +45,26 @@
     const searchRoot = root || document;
     log('Search context:', searchRoot === document ? 'entire document' : 'dialog/root element');
     
-    // Try multiple XPath strategies
+    // Optimized XPath strategies ordered by performance (fastest first)
+    const lowerText = text.toLowerCase();
     const xpathStrategies = [
-      `.//button[normalize-space() = "${text}"] | .//a[normalize-space() = "${text}"]`,
-      `.//*[self::button or self::a][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), "${text.toLowerCase()}")]`,
-      `.//*[self::button or self::a or self::input[@type='button']][contains(., "${text}")]`,
-      `.//button[contains(@class, "btn")] | .//a[contains(@class, "btn")] | .//*[@role="button"]`,
-      `.//*[contains(text(), "${text}") or contains(@value, "${text}") or contains(@title, "${text}") or contains(@aria-label, "${text}")]`
+      // Fast: Exact text match on common elements
+      `.//button[normalize-space() = "${text}"]`,
+      `.//a[normalize-space() = "${text}"]`,
+      
+      // Fast: Attribute-based matching (no text processing)
+      `.//button[@value = "${text}"]`,
+      `.//input[@type='button'][@value = "${text}"]`,
+      
+      // Medium: Contains matching without case conversion
+      `.//button[contains(., "${text}")]`,
+      `.//a[contains(., "${text}")]`,
+      
+      // Medium: Role-based matching
+      `.//*[@role="button"][contains(., "${text}")]`,
+      
+      // Slower: Multi-attribute search (split from expensive union)
+      `.//*[contains(@value, "${text}") or contains(@title, "${text}") or contains(@aria-label, "${text}")]`
     ];
     
     for (const xpath of xpathStrategies) {
@@ -284,9 +297,12 @@
 
   async function retrySubmitWithTimeout(timeoutMs) {
     const startTime = Date.now();
+    const maxAttempts = Math.ceil(timeoutMs / 100); // One attempt per 100ms
+    let attempts = 0;
     log('Starting Submit retry logic with timeout:', timeoutMs + 'ms');
     
-    while (Date.now() - startTime < timeoutMs) {
+    while (Date.now() - startTime < timeoutMs && attempts < maxAttempts) {
+      attempts++;
       // Try multiple Submit button variations
       const submitVariants = ['Submit', 'Confirm', 'OK', 'Yes', 'Apply'];
       
@@ -294,13 +310,13 @@
         const clicked = clickButtonByText(document.body, variant);
         if (clicked) {
           log('Successfully clicked Submit variant:', variant);
-          await sleep(500); // Brief wait to let the action complete
+          await sleep(100); // Brief wait to let the action complete (optimized)
           return true;
         }
       }
       
-      // Wait a bit before trying again
-      await sleep(100);
+      // Wait a bit before trying again (optimized)
+      await sleep(25);
     }
     
     log('Submit retry timeout reached, no Submit button found');
@@ -356,7 +372,7 @@
         }
       }
       
-      await sleep(300);
+      await sleep(75);
     }
     
     log('No shift dialog found with any strategy');
@@ -367,11 +383,13 @@
     log('Waiting for EO modal to appear and attempting Submit...');
     const maxWaitTime = 5000; // 5 seconds max wait
     const startTime = Date.now();
+    let attempts = 0;
     
-    // First, wait a bit for the EO modal to load
-    await sleep(800);
+    // Minimal wait for EO modal to load (optimized for speed)
+    await sleep(200);
     
-    while (Date.now() - startTime < maxWaitTime) {
+    while (Date.now() - startTime < maxWaitTime && attempts < 25) {
+      attempts++;
       // Log current modal state with enhanced detection
       const modals = Array.from(document.querySelectorAll('div[role="dialog"], .modal, .k-window-content, .ui-dialog-content'));
       const visibleModals = modals.filter(m => m.offsetParent !== null);
@@ -447,13 +465,13 @@
         if (submitButton) {
           log('Clicking Submit button:', submitButton.textContent?.trim());
           submitButton.click();
-          await sleep(500); // Wait for submission to process
+          await sleep(100); // Wait for submission to process (optimized)
           return true;
         }
       }
       
-      // Wait a bit before trying again
-      await sleep(100);
+      // Wait a bit before trying again (optimized)
+      await sleep(25);
     }
     
     log('Timeout waiting for Submit button to appear');
@@ -503,8 +521,8 @@
         return;
       }
       log('Login successful, proceeding to roster');
-      // Give time to reach roster after login
-      await sleep(1000);
+      // Give time to reach roster after login (optimized)
+      await sleep(300);
     }
 
     // Strategy 1: Look for existing open dialog first
@@ -517,7 +535,7 @@
       const shiftOpened = await tryOpenAnyShift();
       if (shiftOpened) {
         log('Shift cell clicked, waiting for dialog...');
-        await sleep(500); // Give dialog time to appear
+        await sleep(150); // Give dialog time to appear (optimized)
         dialog = await ensureShiftDialog();
       }
     }

@@ -19,7 +19,7 @@
     p.value = creds.password; p.dispatchEvent(new Event('input', { bubbles: true }));
     const btn = document.getElementById('cmdLogin') || document.querySelector('button[type="submit"], input[type="submit"], button');
     btn?.click();
-    for (let i=0;i<20;i++){ await sleep(300); if (!isLogin()) return true; }
+    for (let i=0;i<20;i++){ await sleep(100); if (!isLogin()) return true; }
     return !isLogin();
   }
 
@@ -92,12 +92,23 @@
   function clickByText(text) {
     log('Searching for button with text:', text);
     
-    // Try multiple XPath strategies with logging
+    // Optimized XPath strategies with performance logging
+    const lowerText = text.toLowerCase();
     const xpathStrategies = [
-      `.//button[normalize-space() = "${text}"] | .//a[normalize-space() = "${text}"]`,
-      `.//*[self::button or self::a][contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), "${text.toLowerCase()}")]`,
-      `.//*[self::button or self::a or self::input[@type='button']][contains(., "${text}")]`,
-      `.//*[contains(text(), "${text}") or contains(@value, "${text}") or contains(@title, "${text}")]`
+      // Fast: Exact text match on common elements
+      `.//button[normalize-space() = "${text}"]`,
+      `.//a[normalize-space() = "${text}"]`,
+      
+      // Fast: Attribute-based matching (no text processing)
+      `.//button[@value = "${text}"]`,
+      `.//input[@type='button'][@value = "${text}"]`,
+      
+      // Medium: Contains matching without case conversion
+      `.//button[contains(., "${text}")]`,
+      `.//a[contains(., "${text}")]`,
+      
+      // Slower: Multi-attribute search (optimized from union)
+      `.//*[contains(@value, "${text}") or contains(@title, "${text}")]`
     ];
     
     for (const xpath of xpathStrategies) {
@@ -172,11 +183,13 @@
     // Click EO List and then Submit immediately with retries for 2s
     clickByText('EO List');
     const start = Date.now();
+    let attempts = 0;
     const loop = () => {
-      if (Date.now() - start > 2000) return;
-      if (!trySubmitVariants()) setTimeout(loop, 50);
+      if (Date.now() - start > 2000 || attempts >= 40) return;
+      attempts++;
+      if (!trySubmitVariants()) setTimeout(loop, 10);
     };
-    setTimeout(loop, 10);
+    setTimeout(loop, 2);
   });
 })();
 

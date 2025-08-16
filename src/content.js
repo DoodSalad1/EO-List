@@ -146,7 +146,7 @@
         if (!dialog) {
           // Try to open a shift cell automatically before prompting
           tryOpenCellThenInject();
-          setTimeout(() => handleAction(queryShiftDialog()), 600);
+          setTimeout(() => handleAction(queryShiftDialog()), 150);
         } else {
           handleAction(dialog);
         }
@@ -160,7 +160,7 @@
     if (target) {
       log('Clicking shift cell:', target.textContent?.trim());
       target.click();
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 100));
       const dlg = queryShiftDialog();
       if (dlg) ensureButton(dlg);
       return true;
