@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EO List - Retry Logic Testing</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .test-controls { margin: 10px 0; }
+        button { margin: 5px; padding: 8px 15px; }
+        .console-output { 
+            background: #f5f5f5; 
+            border: 1px solid #ddd; 
+            padding: 10px; 
+            margin: 10px 0;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .success { color: green; }
+        .error { color: red; }
+        .warning { color: orange; }
+    </style>
+</head>
+<body>
+    <h1>🔄 EO List Retry Logic Testing</h1>
+    
+    <div class="test-section">
+        <h2>Test Configuration</h2>
+        <div class="test-controls">
+            <button onclick="setTestMode(true)">Enable Test Mode</button>
+            <button onclick="setTestMode(false)">Disable Test Mode</button>
+            <button onclick="clearTestConfig()">Clear Test Config</button>
+        </div>
+        
+        <h3>Predefined Test Scenarios</h3>
+        <button onclick="testScenario('success')">✅ Success Scenario</button>
+        <button onclick="testScenario('eo_button_fails')">❌ EO Button Fails 2 Times</button>
+        <button onclick="testScenario('submit_fails')">⚠️ Submit Fails 1 Time</button>
+        <button onclick="testScenario('verification_fails')">🔍 Verification Fails</button>
+        <button onclick="testScenario('timeout')">⏱️ Timeout Scenario</button>
+        <button onclick="testScenario('max_attempts')">🔁 Max Attempts</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Manual Test Configuration</h2>
+        <div class="test-controls">
+            <label>Fail EO Button Attempts: <input type="number" id="failEOAttempts" value="0" min="0" max="3"></label><br><br>
+            <label>Fail Submit Attempts: <input type="number" id="failSubmitAttempts" value="0" min="0" max="3"></label><br><br>
+            <label>Success Rate: <input type="number" id="successRate" value="0.7" min="0" max="1" step="0.1"></label><br><br>
+            <label>Simulate Timeout: <input type="checkbox" id="simulateTimeout"></label><br><br>
+            <button onclick="setCustomConfig()">Apply Custom Config</button>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test Execution</h2>
+        <div class="test-controls">
+            <button onclick="runRetryTest()" style="background: #0b74de; color: white; font-weight: bold;">🚀 Run Retry Test</button>
+            <button onclick="clearConsole()">Clear Console</button>
+        </div>
+        <div id="console" class="console-output">Console output will appear here...</div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Current Test Status</h2>
+        <div id="status">
+            <p><strong>Test Mode:</strong> <span id="testModeStatus">Unknown</span></p>
+            <p><strong>Test Config:</strong> <span id="testConfigStatus">None</span></p>
+        </div>
+    </div>
+
+    <script>
+        // Console override to capture logs
+        const originalLog = console.log;
+        const consoleDiv = document.getElementById('console');
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            
+            const message = args.join(' ');
+            const div = document.createElement('div');
+            
+            // Style based on message content
+            if (message.includes('✅') || message.includes('🎉')) {
+                div.className = 'success';
+            } else if (message.includes('❌') || message.includes('🚨')) {
+                div.className = 'error';
+            } else if (message.includes('⚠️') || message.includes('🧪')) {
+                div.className = 'warning';
+            }
+            
+            div.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            consoleDiv.appendChild(div);
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        };
+        
+        // Test mode management
+        function setTestMode(enabled) {
+            if (enabled) {
+                localStorage.setItem('eo_test_mode', 'true');
+                console.log('🧪 Test mode enabled');
+            } else {
+                localStorage.removeItem('eo_test_mode');
+                console.log('🔧 Test mode disabled');
+            }
+            updateStatus();
+        }
+        
+        function clearTestConfig() {
+            localStorage.removeItem('eo_test_config');
+            console.log('🧹 Test configuration cleared');
+            updateStatus();
+        }
+        
+        function clearConsole() {
+            consoleDiv.innerHTML = 'Console cleared...\n';
+        }
+        
+        // Predefined test scenarios
+        function testScenario(scenario) {
+            let config;
+            
+            switch(scenario) {
+                case 'success':
+                    config = {
+                        failEOButtonAttempts: 0,
+                        failSubmitAttempts: 0,
+                        successRate: 1.0,
+                        simulateTimeout: false
+                    };
+                    console.log('📋 Loaded SUCCESS scenario - should pass on first attempt');
+                    break;
+                    
+                case 'eo_button_fails':
+                    config = {
+                        failEOButtonAttempts: 2,
+                        failSubmitAttempts: 0,
+                        successRate: 1.0,
+                        simulateTimeout: false
+                    };
+                    console.log('📋 Loaded EO BUTTON FAILS scenario - EO button fails 2 times, succeeds on 3rd');
+                    break;
+                    
+                case 'submit_fails':
+                    config = {
+                        failEOButtonAttempts: 0,
+                        failSubmitAttempts: 1,
+                        successRate: 1.0,
+                        simulateTimeout: false
+                    };
+                    console.log('📋 Loaded SUBMIT FAILS scenario - submit fails once, succeeds on 2nd');
+                    break;
+                    
+                case 'verification_fails':
+                    config = {
+                        failEOButtonAttempts: 0,
+                        failSubmitAttempts: 0,
+                        successRate: 0.0,
+                        simulateTimeout: false
+                    };
+                    console.log('📋 Loaded VERIFICATION FAILS scenario - verification always fails');
+                    break;
+                    
+                case 'timeout':
+                    config = {
+                        failEOButtonAttempts: 0,
+                        failSubmitAttempts: 0,
+                        successRate: 0.5,
+                        simulateTimeout: true
+                    };
+                    console.log('📋 Loaded TIMEOUT scenario - slow responses');
+                    break;
+                    
+                case 'max_attempts':
+                    config = {
+                        failEOButtonAttempts: 5,
+                        failSubmitAttempts: 5,
+                        successRate: 0.0,
+                        simulateTimeout: false
+                    };
+                    console.log('📋 Loaded MAX ATTEMPTS scenario - everything fails to test retry limits');
+                    break;
+            }
+            
+            localStorage.setItem('eo_test_config', JSON.stringify(config));
+            localStorage.setItem('eo_test_mode', 'true');
+            updateStatus();
+        }
+        
+        function setCustomConfig() {
+            const config = {
+                failEOButtonAttempts: parseInt(document.getElementById('failEOAttempts').value),
+                failSubmitAttempts: parseInt(document.getElementById('failSubmitAttempts').value),
+                successRate: parseFloat(document.getElementById('successRate').value),
+                simulateTimeout: document.getElementById('simulateTimeout').checked
+            };
+            
+            localStorage.setItem('eo_test_config', JSON.stringify(config));
+            localStorage.setItem('eo_test_mode', 'true');
+            console.log('🔧 Custom test configuration applied:', JSON.stringify(config, null, 2));
+            updateStatus();
+        }
+        
+        function updateStatus() {
+            const testMode = localStorage.getItem('eo_test_mode') === 'true';
+            const testConfig = localStorage.getItem('eo_test_config');
+            
+            document.getElementById('testModeStatus').textContent = testMode ? 'Enabled' : 'Disabled';
+            document.getElementById('testModeStatus').style.color = testMode ? 'green' : 'red';
+            
+            if (testConfig) {
+                try {
+                    const config = JSON.parse(testConfig);
+                    document.getElementById('testConfigStatus').textContent = JSON.stringify(config, null, 2);
+                } catch (e) {
+                    document.getElementById('testConfigStatus').textContent = 'Invalid JSON';
+                }
+            } else {
+                document.getElementById('testConfigStatus').textContent = 'None';
+            }
+        }
+        
+        // Mock the EO extension functions for testing
+        async function runRetryTest() {
+            console.log('🚀 Starting retry logic test...');
+            
+            if (!localStorage.getItem('eo_test_mode')) {
+                console.log('⚠️ Test mode not enabled - enabling automatically');
+                localStorage.setItem('eo_test_mode', 'true');
+            }
+            
+            try {
+                // Simulate loading the clicker.js retry logic
+                await testSubmitEOWithRetry();
+            } catch (error) {
+                console.log('❌ Test execution error:', error.message);
+            }
+        }
+        
+        // Simplified version of the retry logic for testing
+        async function testSubmitEOWithRetry(maxAttempts = 3, retryDelay = 1000) {
+            console.log('🔄 Starting EO submission with retry logic...');
+            
+            const startTime = Date.now();
+            const maxTotalTime = 30000;
+            let totalSleepTime = 0;
+            const maxSleepTime = 10000;
+            
+            if (maxAttempts > 10) {
+                console.log('⚠️ Limiting maxAttempts to 10 for safety');
+                maxAttempts = 10;
+            }
+            if (retryDelay > 5000) {
+                console.log('⚠️ Limiting retryDelay to 5000ms for safety');
+                retryDelay = 5000;
+            }
+            
+            function getTestConfig() {
+                const testConfig = localStorage.getItem('eo_test_config');
+                if (testConfig) {
+                    try {
+                        return JSON.parse(testConfig);
+                    } catch (e) {
+                        console.log('⚠️ Invalid test config, using defaults');
+                    }
+                }
+                return {
+                    failEOButtonAttempts: 0,
+                    failSubmitAttempts: 0,
+                    successRate: 0.7,
+                    simulateTimeout: false
+                };
+            }
+            
+            async function sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+            
+            async function mockVerifySubmissionSuccess() {
+                console.log('🔍 Starting EO submission verification...');
+                const config = getTestConfig();
+                
+                if (config.simulateTimeout) {
+                    console.log('🐌 TEST: Simulating slow verification...');
+                    await sleep(2500);
+                }
+                
+                const simulatedSuccess = Math.random() < config.successRate;
+                await sleep(config.simulateTimeout ? 100 : 500);
+                console.log(simulatedSuccess ? '✅ TEST: Simulated successful submission' : '❌ TEST: Simulated failed submission');
+                return simulatedSuccess;
+            }
+            
+            async function mockWaitForEOModalAndSubmit() {
+                const config = getTestConfig();
+                
+                // Simulate submit failure based on config
+                if (totalSubmitAttempts < config.failSubmitAttempts) {
+                    console.log(`🧪 TEST: Simulating submit failure (attempt ${totalSubmitAttempts + 1})`);
+                    totalSubmitAttempts++;
+                    return {
+                        clicked: false,
+                        verified: false,
+                        error: 'TEST: Simulated submit failure'
+                    };
+                }
+                
+                console.log('🧪 TEST: Simulating submit success');
+                totalSubmitAttempts++;
+                const verified = await mockVerifySubmissionSuccess();
+                
+                return {
+                    clicked: true,
+                    verified: verified,
+                    timestamp: Date.now()
+                };
+            }
+            
+            let totalSubmitAttempts = 0;
+            
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                const elapsed = Date.now() - startTime;
+                if (elapsed > maxTotalTime) {
+                    console.log(`🚨 Retry timeout reached (${elapsed}ms) - aborting to prevent infinite loop`);
+                    return { 
+                        success: false, 
+                        error: 'Timeout exceeded', 
+                        attempts: attempt - 1,
+                        elapsed: elapsed
+                    };
+                }
+                
+                console.log(`🔄 EO submission attempt ${attempt}/${maxAttempts} (elapsed: ${elapsed}ms)`);
+                
+                // Step 1: Mock EO List button click
+                let clickedEO = false;
+                const config = getTestConfig();
+                
+                if (attempt <= config.failEOButtonAttempts) {
+                    console.log(`🧪 TEST: Simulating EO button failure on attempt ${attempt}`);
+                    clickedEO = false;
+                } else {
+                    console.log(`🧪 TEST: Simulating EO button success on attempt ${attempt}`);
+                    clickedEO = true;
+                }
+                
+                if (!clickedEO) {
+                    console.log(`❌ Attempt ${attempt}: EO List button not found`);
+                    if (attempt < maxAttempts && totalSleepTime < maxSleepTime) {
+                        const sleepTime = Math.min(retryDelay, maxSleepTime - totalSleepTime);
+                        totalSleepTime += sleepTime;
+                        console.log(`💤 Waiting ${sleepTime}ms before retry (total sleep: ${totalSleepTime}ms)`);
+                        await sleep(sleepTime);
+                    }
+                    continue;
+                }
+                
+                console.log(`✅ Successfully clicked EO List button on attempt ${attempt}`);
+                
+                // Step 2: Mock submit with verification
+                const submitResult = await mockWaitForEOModalAndSubmit();
+                
+                if (submitResult?.clicked && submitResult?.verified) {
+                    console.log(`✅ EO submission successful and verified on attempt ${attempt}!`);
+                    return { 
+                        success: true, 
+                        attempts: attempt, 
+                        verified: true,
+                        elapsed: Date.now() - startTime
+                    };
+                }
+                
+                if (submitResult?.clicked && !submitResult?.verified) {
+                    console.log(`⚠️ Attempt ${attempt}: Submitted but verification failed - assuming success`);
+                    return { 
+                        success: true, 
+                        attempts: attempt, 
+                        verified: false,
+                        elapsed: Date.now() - startTime
+                    };
+                }
+                
+                console.log(`❌ Attempt ${attempt}: Submit failed - ${submitResult?.error || 'unknown error'}`);
+                
+                if (attempt < maxAttempts && totalSleepTime < maxSleepTime) {
+                    const sleepTime = Math.min(retryDelay, maxSleepTime - totalSleepTime);
+                    totalSleepTime += sleepTime;
+                    console.log(`💤 Waiting ${sleepTime}ms before retry (total sleep: ${totalSleepTime}ms)`);
+                    await sleep(sleepTime);
+                }
+            }
+            
+            const finalElapsed = Date.now() - startTime;
+            console.log(`❌ All EO submission attempts failed after ${finalElapsed}ms`);
+            return { 
+                success: false, 
+                error: 'Max attempts reached', 
+                attempts: maxAttempts,
+                elapsed: finalElapsed
+            };
+        }
+        
+        // Initialize status on page load
+        updateStatus();
+        
+        console.log('🧪 Retry Logic Test Page Loaded');
+        console.log('ℹ️ Use the test scenarios to validate retry behavior');
+        console.log('ℹ️ Watch for infinite loop protection and timing limits');
+    </script>
+</body>
+</html>

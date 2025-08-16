@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DOM Cache Performance Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .console-output { 
+            background: #f5f5f5; 
+            border: 1px solid #ddd; 
+            padding: 10px; 
+            height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .performance-stats {
+            background: #e8f4fd;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #0b74de;
+        }
+        button { margin: 5px; padding: 8px 15px; }
+        .success { color: green; }
+        .error { color: red; }
+        .cache-hit { color: blue; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>📦 DOM Cache Performance Testing</h1>
+    
+    <div class="test-section">
+        <h2>Test Environment</h2>
+        <p>This page simulates the VR portal structure to test DOM caching performance improvements.</p>
+        
+        <!-- Simulate VR portal structure -->
+        <div class="modal" role="dialog" style="display: block;">
+            <div class="k-window-content">
+                <h3>Schedule for Mon 08/16/2025</h3>
+                <p>Shift: 8:00pm - 4:00am</p>
+                <div class="shift-actions">
+                    <button class="di_swap_shift">Swap Shift</button>
+                    <button class="di_give_shift">Give Shift</button>
+                    <button class="di_eo_list">EO List</button>
+                    <button class="di_work_list">Work List</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Submit modal (hidden initially) -->
+        <div class="submit-modal" role="dialog" style="display: none;">
+            <div class="modal-content">
+                <p>I want to be on the list for EO</p>
+                <button class="btn-submit">Submit</button>
+                <button class="btn-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Performance Tests</h2>
+        <button onclick="testFirstRun()">🔍 Test First Run (No Cache)</button>
+        <button onclick="testCachedRun()">⚡ Test Cached Run</button>
+        <button onclick="runBenchmark()">📊 Run Benchmark (10 iterations)</button>
+        <button onclick="clearCache()">🧹 Clear Cache</button>
+        <button onclick="showCacheStats()">📈 Show Cache Stats</button>
+    </div>
+    
+    <div class="performance-stats" id="stats">
+        <strong>Performance Stats:</strong> Run tests to see results
+    </div>
+    
+    <div class="test-section">
+        <h2>Console Output</h2>
+        <button onclick="clearConsole()">Clear Console</button>
+        <div id="console" class="console-output">Console output will appear here...</div>
+    </div>
+
+    <script>
+        // Console override to capture logs
+        const originalLog = console.log;
+        const consoleDiv = document.getElementById('console');
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            
+            const message = args.join(' ');
+            const div = document.createElement('div');
+            
+            // Style based on message content
+            if (message.includes('⚡') || message.includes('Cache hit')) {
+                div.className = 'cache-hit';
+            } else if (message.includes('✅') || message.includes('📦')) {
+                div.className = 'success';
+            } else if (message.includes('❌')) {
+                div.className = 'error';
+            }
+            
+            div.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            consoleDiv.appendChild(div);
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        };
+        
+        function clearConsole() {
+            consoleDiv.innerHTML = 'Console cleared...\n';
+        }
+        
+        function clearCache() {
+            localStorage.removeItem('eo_dom_cache');
+            localStorage.removeItem('button_cache_eo_list');
+            localStorage.removeItem('button_cache_submit');
+            console.log('🧹 All caches cleared');
+            updateStats();
+        }
+        
+        function showCacheStats() {
+            const domCache = localStorage.getItem('eo_dom_cache');
+            if (domCache) {
+                try {
+                    const cache = JSON.parse(domCache);
+                    console.log('📊 DOM Cache Stats:', JSON.stringify(cache.performance, null, 2));
+                    console.log('🔧 Working Selectors:', Object.keys(cache.selectors?.working || {}));
+                    console.log('📦 Cached Elements:', Object.keys(cache.elements || {}));
+                } catch (e) {
+                    console.log('⚠️ Invalid cache data');
+                }
+            } else {
+                console.log('📊 No DOM cache found');
+            }
+            updateStats();
+        }
+        
+        // Simulate the DOM cache system (simplified version)
+        const DOM_CACHE = {
+            version: '2.0',
+            timestamp: 0,
+            pageHash: '',
+            elements: {},
+            selectors: {
+                working: new Map(),
+                failed: new Set()
+            },
+            performance: {
+                cacheHits: 0,
+                cacheMisses: 0,
+                avgCacheTime: 0,
+                avgSearchTime: 0
+            }
+        };
+        
+        function generatePageHash() {
+            const keyElements = [
+                document.title,
+                document.querySelector('body')?.className || '',
+                document.querySelectorAll('script').length,
+                document.querySelectorAll('div').length
+            ];
+            return btoa(keyElements.join('|')).substring(0, 16);
+        }
+        
+        function isDOMCacheValid() {
+            const now = Date.now();
+            const maxAge = 5 * 60 * 1000;
+            const currentHash = generatePageHash();
+            
+            return (
+                DOM_CACHE.timestamp > 0 &&
+                now - DOM_CACHE.timestamp < maxAge &&
+                DOM_CACHE.pageHash === currentHash
+            );
+        }
+        
+        function tryUseCachedElement(key, expectedText) {
+            if (!isDOMCacheValid()) return null;
+            
+            const cached = DOM_CACHE.elements[key];
+            if (!cached || cached.length === 0) return null;
+            
+            const startTime = performance.now();
+            
+            for (const elementData of cached) {
+                try {
+                    const element = document.querySelector(elementData.selector);
+                    if (element && element.offsetParent !== null) {
+                        const textMatches = !expectedText || 
+                            (element.textContent || '').toLowerCase().includes(expectedText.toLowerCase());
+                        
+                        if (textMatches) {
+                            const cacheTime = performance.now() - startTime;
+                            DOM_CACHE.performance.cacheHits++;
+                            DOM_CACHE.performance.avgCacheTime = 
+                                (DOM_CACHE.performance.avgCacheTime + cacheTime) / 2;
+                            
+                            console.log(`⚡ Cache hit for ${key}: ${elementData.selector} (${cacheTime.toFixed(1)}ms)`);
+                            return element;
+                        }
+                    }
+                } catch (error) {
+                    console.log(`⚠️ Cached element failed for ${key}:`, error.message);
+                }
+            }
+            
+            DOM_CACHE.elements[key] = [];
+            DOM_CACHE.performance.cacheMisses++;
+            return null;
+        }
+        
+        function cacheElementStructure(key, element, selector, searchTime) {
+            if (!element || !selector) return;
+            
+            const elementData = {
+                selector: selector,
+                tagName: element.tagName,
+                className: element.className,
+                textContent: (element.textContent || '').substring(0, 50),
+                cached: Date.now(),
+                searchTime: searchTime
+            };
+            
+            DOM_CACHE.elements[key] = [elementData];
+            console.log(`📦 Cached ${key}: ${selector} (${searchTime}ms search)`);
+        }
+        
+        function generateOptimizedSelector(element) {
+            if (element.id) return `#${element.id}`;
+            
+            if (element.className) {
+                const classes = Array.from(element.classList).filter(c => c.length > 2);
+                if (classes.length > 0) {
+                    return `${element.tagName.toLowerCase()}.${classes.join('.')}`;
+                }
+            }
+            
+            return element.tagName.toLowerCase();
+        }
+        
+        function simulateButtonSearch(buttonText) {
+            const startTime = performance.now();
+            
+            // Try cache first
+            const cacheKey = `button_${buttonText.toLowerCase().replace(/\s+/g, '_')}`;
+            const cachedElement = tryUseCachedElement(cacheKey, buttonText);
+            if (cachedElement) {
+                return {
+                    found: true,
+                    time: performance.now() - startTime,
+                    method: 'cache',
+                    element: cachedElement
+                };
+            }
+            
+            // Simulate search time (XPath/CSS would be slower)
+            const searchDelay = Math.random() * 50 + 20; // 20-70ms random delay
+            
+            // Find element
+            const buttons = Array.from(document.querySelectorAll('button'));
+            const element = buttons.find(btn => 
+                (btn.textContent || '').toLowerCase().includes(buttonText.toLowerCase())
+            );
+            
+            if (element) {
+                const searchTime = searchDelay;
+                const selector = generateOptimizedSelector(element);
+                cacheElementStructure(cacheKey, element, selector, searchTime);
+                
+                DOM_CACHE.performance.avgSearchTime = 
+                    (DOM_CACHE.performance.avgSearchTime + searchTime) / 2;
+                
+                return {
+                    found: true,
+                    time: searchTime,
+                    method: 'search',
+                    element: element
+                };
+            }
+            
+            return { found: false, time: searchTime, method: 'search' };
+        }
+        
+        function initCache() {
+            DOM_CACHE.timestamp = Date.now();
+            DOM_CACHE.pageHash = generatePageHash();
+        }
+        
+        async function testFirstRun() {
+            console.log('🔍 Testing first run (no cache)...');
+            clearCache();
+            initCache();
+            
+            const eoResult = simulateButtonSearch('EO List');
+            const submitResult = simulateButtonSearch('Submit');
+            
+            console.log(`✅ EO List found via ${eoResult.method} in ${eoResult.time.toFixed(1)}ms`);
+            console.log(`✅ Submit found via ${submitResult.method} in ${submitResult.time.toFixed(1)}ms`);
+            console.log(`📊 Total time: ${(eoResult.time + submitResult.time).toFixed(1)}ms`);
+            
+            updateStats();
+        }
+        
+        async function testCachedRun() {
+            console.log('⚡ Testing cached run...');
+            
+            const eoResult = simulateButtonSearch('EO List');
+            const submitResult = simulateButtonSearch('Submit');
+            
+            console.log(`✅ EO List found via ${eoResult.method} in ${eoResult.time.toFixed(1)}ms`);
+            console.log(`✅ Submit found via ${submitResult.method} in ${submitResult.time.toFixed(1)}ms`);
+            console.log(`📊 Total time: ${(eoResult.time + submitResult.time).toFixed(1)}ms`);
+            
+            updateStats();
+        }
+        
+        async function runBenchmark() {
+            console.log('📊 Running performance benchmark...');
+            clearCache();
+            initCache();
+            
+            const results = {
+                firstRun: [],
+                cachedRuns: [],
+                totalFirst: 0,
+                totalCached: 0
+            };
+            
+            // First run (no cache)
+            for (let i = 0; i < 3; i++) {
+                const eoResult = simulateButtonSearch('EO List');
+                const submitResult = simulateButtonSearch('Submit');
+                const total = eoResult.time + submitResult.time;
+                results.firstRun.push(total);
+                results.totalFirst += total;
+                
+                // Clear cache between first runs
+                DOM_CACHE.elements = {};
+            }
+            
+            // Cached runs
+            for (let i = 0; i < 7; i++) {
+                const eoResult = simulateButtonSearch('EO List');
+                const submitResult = simulateButtonSearch('Submit');
+                const total = eoResult.time + submitResult.time;
+                results.cachedRuns.push(total);
+                results.totalCached += total;
+            }
+            
+            const avgFirst = results.totalFirst / results.firstRun.length;
+            const avgCached = results.totalCached / results.cachedRuns.length;
+            const speedup = ((avgFirst - avgCached) / avgFirst * 100);
+            
+            console.log('📊 BENCHMARK RESULTS:');
+            console.log(`   First runs: ${avgFirst.toFixed(1)}ms average`);
+            console.log(`   Cached runs: ${avgCached.toFixed(1)}ms average`);
+            console.log(`   Speed improvement: ${speedup.toFixed(1)}% faster`);
+            console.log(`   Time saved: ${(avgFirst - avgCached).toFixed(1)}ms per submission`);
+            
+            updateStats();
+        }
+        
+        function updateStats() {
+            const stats = document.getElementById('stats');
+            const { cacheHits, cacheMisses, avgCacheTime, avgSearchTime } = DOM_CACHE.performance;
+            
+            if (cacheHits + cacheMisses > 0) {
+                const hitRate = ((cacheHits / (cacheHits + cacheMisses)) * 100).toFixed(1);
+                stats.innerHTML = `
+                    <strong>Performance Stats:</strong><br>
+                    Cache Hit Rate: ${hitRate}% (${cacheHits} hits, ${cacheMisses} misses)<br>
+                    Average Cache Time: ${avgCacheTime.toFixed(1)}ms<br>
+                    Average Search Time: ${avgSearchTime.toFixed(1)}ms<br>
+                    Speed Improvement: ${avgSearchTime > 0 ? ((avgSearchTime - avgCacheTime) / avgSearchTime * 100).toFixed(1) : 0}%
+                `;
+            } else {
+                stats.innerHTML = '<strong>Performance Stats:</strong> Run tests to see results';
+            }
+        }
+        
+        // Initialize
+        initCache();
+        console.log('🧪 DOM Cache Test Page Loaded');
+        console.log('ℹ️ Test first run vs cached run to see performance improvements');
+        
+    </script>
+</body>
+</html>

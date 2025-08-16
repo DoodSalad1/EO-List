@@ -5,6 +5,269 @@
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+  // DOM Structure Caching System for Maximum Speed
+  const DOM_CACHE = {
+    version: '2.0',
+    timestamp: 0,
+    pageHash: '',
+    elements: {
+      shiftDialogs: [],
+      eoButtons: [],
+      submitButtons: [],
+      modals: []
+    },
+    selectors: {
+      working: new Map(), // selector -> {lastSuccess, useCount, avgTime}
+      failed: new Set()   // selectors that consistently fail
+    },
+    performance: {
+      cacheHits: 0,
+      cacheMisses: 0,
+      avgCacheTime: 0,
+      avgSearchTime: 0
+    }
+  };
+
+  // Generate DOM structure hash for cache validation
+  function generatePageHash() {
+    try {
+      // Create hash based on key DOM structure elements
+      const keyElements = [
+        document.title,
+        document.querySelector('body')?.className || '',
+        document.querySelectorAll('script').length,
+        document.querySelectorAll('div').length
+      ];
+      const structure = keyElements.join('|');
+      return btoa(structure).substring(0, 16);
+    } catch (e) {
+      return 'fallback_hash';
+    }
+  }
+
+  // Check if DOM cache is still valid
+  function isDOMCacheValid() {
+    const now = Date.now();
+    const maxAge = 5 * 60 * 1000; // 5 minutes max cache age
+    const currentHash = generatePageHash();
+    
+    const isValid = (
+      DOM_CACHE.timestamp > 0 &&
+      now - DOM_CACHE.timestamp < maxAge &&
+      DOM_CACHE.pageHash === currentHash
+    );
+    
+    if (!isValid && DOM_CACHE.timestamp > 0) {
+      log('🔄 DOM cache invalidated - page structure changed');
+    }
+    
+    return isValid;
+  }
+
+  // Cache element with metadata for learning
+  function cacheElementStructure(key, element, selector, searchTime = 0) {
+    if (!element || !selector) return;
+    
+    try {
+      const elementData = {
+        selector: selector,
+        tagName: element.tagName,
+        className: element.className,
+        textContent: (element.textContent || '').substring(0, 50),
+        position: {
+          x: element.offsetLeft,
+          y: element.offsetTop,
+          width: element.offsetWidth,
+          height: element.offsetHeight
+        },
+        parent: element.parentElement?.tagName || '',
+        cached: Date.now(),
+        searchTime: searchTime
+      };
+      
+      // Store in elements cache
+      if (!DOM_CACHE.elements[key]) {
+        DOM_CACHE.elements[key] = [];
+      }
+      
+      // Remove old entries for this key (keep only latest)
+      DOM_CACHE.elements[key] = [elementData];
+      
+      // Update selector performance tracking
+      const existing = DOM_CACHE.selectors.working.get(selector);
+      if (existing) {
+        existing.useCount++;
+        existing.lastSuccess = Date.now();
+        existing.avgTime = (existing.avgTime + searchTime) / 2;
+      } else {
+        DOM_CACHE.selectors.working.set(selector, {
+          lastSuccess: Date.now(),
+          useCount: 1,
+          avgTime: searchTime
+        });
+      }
+      
+      DOM_CACHE.selectors.failed.delete(selector);
+      log(`📦 Cached ${key}:`, selector, `(${searchTime}ms search)`);
+      
+    } catch (error) {
+      log('⚠️ Cache storage error:', error.message);
+    }
+  }
+
+  // Try to use cached element for instant access
+  function tryUseCachedElement(key, expectedText = '') {
+    if (!isDOMCacheValid()) {
+      return null;
+    }
+    
+    const cached = DOM_CACHE.elements[key];
+    if (!cached || cached.length === 0) {
+      return null;
+    }
+    
+    const startTime = performance.now();
+    
+    for (const elementData of cached) {
+      try {
+        const element = document.querySelector(elementData.selector);
+        
+        if (element && element.offsetParent !== null) {
+          // Verify element still matches cached properties
+          const textMatches = !expectedText || 
+            (element.textContent || '').toLowerCase().includes(expectedText.toLowerCase());
+          
+          const structureMatches = 
+            element.tagName === elementData.tagName &&
+            element.textContent?.substring(0, 20) === elementData.textContent?.substring(0, 20);
+          
+          if (textMatches && structureMatches) {
+            const cacheTime = performance.now() - startTime;
+            DOM_CACHE.performance.cacheHits++;
+            DOM_CACHE.performance.avgCacheTime = 
+              (DOM_CACHE.performance.avgCacheTime + cacheTime) / 2;
+              
+            log(`⚡ Cache hit for ${key}: ${elementData.selector} (${cacheTime.toFixed(1)}ms)`);
+            return element;
+          }
+        }
+      } catch (error) {
+        log(`⚠️ Cached element failed for ${key}:`, error.message);
+      }
+    }
+    
+    // Cache miss - remove invalid entries
+    DOM_CACHE.elements[key] = [];
+    DOM_CACHE.performance.cacheMisses++;
+    return null;
+  }
+
+  // Generate optimized selector for caching
+  function generateOptimizedSelector(element) {
+    try {
+      const selectors = [];
+      
+      // Strategy 1: ID selector (most reliable)
+      if (element.id) {
+        selectors.push(`#${element.id}`);
+      }
+      
+      // Strategy 2: Class-based selector (reliable for consistent UI)
+      if (element.className) {
+        const classes = Array.from(element.classList).filter(c => 
+          !c.includes('hover') && 
+          !c.includes('active') && 
+          !c.includes('focus') &&
+          !c.includes('selected') &&
+          c.length > 2
+        );
+        
+        if (classes.length > 0 && classes.length <= 3) {
+          selectors.push(`${element.tagName.toLowerCase()}.${classes.join('.')}`);
+        }
+      }
+      
+      // Strategy 3: Attribute-based selector
+      const role = element.getAttribute('role');
+      const type = element.getAttribute('type');
+      if (role) {
+        selectors.push(`${element.tagName.toLowerCase()}[role="${role}"]`);
+      }
+      if (type) {
+        selectors.push(`${element.tagName.toLowerCase()}[type="${type}"]`);
+      }
+      
+      // Strategy 4: Position-based selector (last resort)
+      const parent = element.parentElement;
+      if (parent && parent.children.length <= 10) {
+        const siblings = Array.from(parent.children);
+        const index = siblings.indexOf(element);
+        if (index >= 0) {
+          selectors.push(`${parent.tagName.toLowerCase()} > ${element.tagName.toLowerCase()}:nth-child(${index + 1})`);
+        }
+      }
+      
+      // Return the most specific selector that's not overly complex
+      return selectors[0] || element.tagName.toLowerCase();
+      
+    } catch (error) {
+      log('⚠️ Selector generation error:', error.message);
+      return element.tagName?.toLowerCase() || 'unknown';
+    }
+  }
+
+  // Initialize DOM cache system
+  function initDOMCache() {
+    try {
+      const stored = localStorage.getItem('eo_dom_cache');
+      if (stored) {
+        const parsedCache = JSON.parse(stored);
+        if (parsedCache.version === DOM_CACHE.version) {
+          // Restore performance metrics and working selectors
+          Object.assign(DOM_CACHE.performance, parsedCache.performance || {});
+          
+          if (parsedCache.selectors?.working) {
+            for (const [selector, data] of Object.entries(parsedCache.selectors.working)) {
+              DOM_CACHE.selectors.working.set(selector, data);
+            }
+          }
+          
+          log('📦 Loaded DOM cache from storage');
+        } else {
+          log('🔄 Cache version mismatch, starting fresh');
+        }
+      }
+    } catch (error) {
+      log('⚠️ Failed to load DOM cache:', error.message);
+    }
+    
+    // Update cache state
+    DOM_CACHE.timestamp = Date.now();
+    DOM_CACHE.pageHash = generatePageHash();
+  }
+
+  // Save DOM cache to storage
+  function saveDOMCache() {
+    try {
+      DOM_CACHE.timestamp = Date.now();
+      DOM_CACHE.pageHash = generatePageHash();
+      
+      // Convert Map to object for storage
+      const cacheToStore = {
+        ...DOM_CACHE,
+        selectors: {
+          working: Object.fromEntries(DOM_CACHE.selectors.working),
+          failed: Array.from(DOM_CACHE.selectors.failed)
+        }
+      };
+      
+      localStorage.setItem('eo_dom_cache', JSON.stringify(cacheToStore));
+      log(`💾 Saved DOM cache (${DOM_CACHE.performance.cacheHits} hits, ${DOM_CACHE.performance.cacheMisses} misses)`);
+    } catch (error) {
+      log('⚠️ Failed to save DOM cache:', error.message);
+    }
+  }
+
   // Button location caching utilities for speed optimization
   function getCachedSelector(key) {
     try {
@@ -110,15 +373,29 @@
   }
 
   function clickButtonByText(root, text) {
+    const searchStartTime = performance.now();
     log('Looking for button with text:', text);
     
     // Debug: Log the search context
     const searchRoot = root || document;
     log('Search context:', searchRoot === document ? 'entire document' : 'dialog/root element');
     
-    // Fast path: Try cached selector first
-    const cacheKey = `button_cache_${text.toLowerCase().replace(/\s+/g, '_')}`;
-    if (tryFastClick(searchRoot, text, cacheKey)) {
+    // Enhanced fast path: Try DOM cache first (new system)
+    const domCacheKey = `button_${text.toLowerCase().replace(/\s+/g, '_')}`;
+    const cachedElement = tryUseCachedElement(domCacheKey, text);
+    if (cachedElement) {
+      try {
+        cachedElement.click();
+        log(`⚡ DOM cache hit - clicked in ${(performance.now() - searchStartTime).toFixed(1)}ms`);
+        return true;
+      } catch (error) {
+        log('⚠️ Cached element click failed:', error.message);
+      }
+    }
+    
+    // Legacy cache fallback
+    const legacyCacheKey = `button_cache_${text.toLowerCase().replace(/\s+/g, '_')}`;
+    if (tryFastClick(searchRoot, text, legacyCacheKey)) {
       return true;
     }
     
@@ -149,9 +426,19 @@
         const result = document.evaluate(xpath, searchRoot, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
         const el = result.singleNodeValue;
         if (el) {
-          log('Found button with XPath:', xpath, 'element:', el.tagName, el.textContent?.trim());
-          // Cache this successful find for future use
-          setCachedSelector(cacheKey, el, searchRoot);
+          const searchTime = performance.now() - searchStartTime;
+          log('Found button with XPath:', xpath, 'element:', el.tagName, el.textContent?.trim(), `(${searchTime.toFixed(1)}ms)`);
+          
+          // Cache with both systems for learning and fallback
+          setCachedSelector(legacyCacheKey, el, searchRoot);
+          
+          // Enhanced DOM cache with performance tracking
+          const optimizedSelector = generateOptimizedSelector(el);
+          cacheElementStructure(domCacheKey, el, optimizedSelector, searchTime);
+          
+          DOM_CACHE.performance.avgSearchTime = 
+            (DOM_CACHE.performance.avgSearchTime + searchTime) / 2;
+          
           el.click();
           return true;
         }
@@ -177,9 +464,19 @@
         });
         
         if (el) {
-          log('Found button with CSS selector:', selector, 'element:', el.tagName, el.textContent?.trim());
-          // Cache this successful find for future use
-          setCachedSelector(cacheKey, el, searchRoot);
+          const searchTime = performance.now() - searchStartTime;
+          log('Found button with CSS selector:', selector, 'element:', el.tagName, el.textContent?.trim(), `(${searchTime.toFixed(1)}ms)`);
+          
+          // Cache with both systems for learning and fallback
+          setCachedSelector(legacyCacheKey, el, searchRoot);
+          
+          // Enhanced DOM cache with performance tracking
+          const optimizedSelector = generateOptimizedSelector(el);
+          cacheElementStructure(domCacheKey, el, optimizedSelector, searchTime);
+          
+          DOM_CACHE.performance.avgSearchTime = 
+            (DOM_CACHE.performance.avgSearchTime + searchTime) / 2;
+          
           el.click();
           return true;
         }
@@ -460,6 +757,264 @@
     return null;
   }
 
+  // Test mode configuration for retry logic testing
+  function getTestConfig() {
+    const testConfig = localStorage.getItem('eo_test_config');
+    if (testConfig) {
+      try {
+        return JSON.parse(testConfig);
+      } catch (e) {
+        log('⚠️ Invalid test config, using defaults');
+      }
+    }
+    return {
+      failEOButtonAttempts: 0,    // How many EO button clicks should fail
+      failSubmitAttempts: 0,      // How many submit attempts should fail
+      successRate: 0.7,           // Success rate for verification (0.0 to 1.0)
+      simulateTimeout: false      // Simulate extremely slow responses
+    };
+  }
+
+  // Success verification with comprehensive logging and test mode
+  async function verifySubmissionSuccess(testMode = false) {
+    log('🔍 Starting EO submission verification...');
+    
+    if (testMode) {
+      log('🧪 TEST MODE: Simulating success verification');
+      const config = getTestConfig();
+      
+      if (config.simulateTimeout) {
+        log('🐌 TEST: Simulating slow verification...');
+        await sleep(2500); // Longer than normal verification window
+      }
+      
+      // Simulate success/failure based on config
+      const simulatedSuccess = Math.random() < config.successRate;
+      await sleep(config.simulateTimeout ? 100 : 500); // Simulate verification time
+      log(simulatedSuccess ? '✅ TEST: Simulated successful submission' : '❌ TEST: Simulated failed submission');
+      return simulatedSuccess;
+    }
+    
+    const successIndicators = [
+      // Text-based confirmation patterns
+      {
+        name: 'Success text confirmation',
+        check: () => {
+          const bodyText = document.body.textContent || '';
+          const patterns = [
+            /successfully added to.*early out/i,
+            /you are now on.*eo list/i,
+            /added to.*eo.*list/i,
+            /early out.*request.*submitted/i
+          ];
+          return patterns.some(pattern => pattern.test(bodyText));
+        }
+      },
+      
+      // Modal/dialog state changes
+      {
+        name: 'EO modal disappeared',
+        check: () => {
+          const eoModals = document.querySelectorAll('div[role="dialog"], .modal, .k-window-content');
+          const visibleModals = Array.from(eoModals).filter(modal => 
+            modal.offsetParent !== null && 
+            (modal.textContent || '').includes('EO')
+          );
+          return visibleModals.length === 0;
+        }
+      },
+      
+      // Button state changes
+      {
+        name: 'EO button text changed',
+        check: () => {
+          const buttons = document.querySelectorAll('button, a, [role="button"]');
+          return Array.from(buttons).some(btn => {
+            const text = (btn.textContent || '').toLowerCase();
+            return text.includes('remove') && text.includes('eo') ||
+                   text.includes('cancel') && text.includes('eo');
+          });
+        }
+      },
+      
+      // Success/confirmation elements
+      {
+        name: 'Confirmation elements',
+        check: () => {
+          const confirmSelectors = [
+            '.success-message', '.confirmation', '.alert-success',
+            '.notification-success', '[class*="success"]'
+          ];
+          return confirmSelectors.some(selector => {
+            const elements = document.querySelectorAll(selector);
+            return Array.from(elements).some(el => 
+              el.offsetParent !== null && 
+              /eo|early.*out/i.test(el.textContent || '')
+            );
+          });
+        }
+      }
+    ];
+    
+    // Check indicators over 2-second window
+    for (let i = 0; i < 20; i++) {
+      for (const indicator of successIndicators) {
+        try {
+          if (indicator.check()) {
+            log(`✅ EO submission success verified: ${indicator.name}`);
+            return true;
+          }
+        } catch (error) {
+          log(`⚠️ Error checking ${indicator.name}:`, error.message);
+        }
+      }
+      
+      if (i % 5 === 0) { // Log every 500ms
+        log(`🔄 Verification attempt ${i + 1}/20...`);
+      }
+      
+      await sleep(100);
+    }
+    
+    log('❌ Could not verify EO submission success after 2 seconds');
+    log('📊 Final state check:');
+    
+    // Log final state for debugging
+    successIndicators.forEach(indicator => {
+      try {
+        const result = indicator.check();
+        log(`  ${indicator.name}: ${result ? '✅' : '❌'}`);
+      } catch (error) {
+        log(`  ${indicator.name}: ⚠️ Error - ${error.message}`);
+      }
+    });
+    
+    return false;
+  }
+
+  // Retry logic with comprehensive infinite loop protection
+  async function submitEOWithRetry(maxAttempts = 3, retryDelay = 1000) {
+    log('🔄 Starting EO submission with retry logic...');
+    
+    // Infinite loop prevention - multiple safety mechanisms
+    const startTime = Date.now();
+    const maxTotalTime = 30000; // 30 second absolute hard limit
+    let totalSleepTime = 0;
+    const maxSleepTime = 10000; // Limit total sleep time to 10 seconds
+    
+    // Validate inputs to prevent infinite loops
+    if (maxAttempts > 10) {
+      log('⚠️ Limiting maxAttempts to 10 for safety');
+      maxAttempts = 10;
+    }
+    if (retryDelay > 5000) {
+      log('⚠️ Limiting retryDelay to 5000ms for safety');
+      retryDelay = 5000;
+    }
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Time-based circuit breaker - hard stop
+      const elapsed = Date.now() - startTime;
+      if (elapsed > maxTotalTime) {
+        log(`🚨 Retry timeout reached (${elapsed}ms) - aborting to prevent infinite loop`);
+        return { 
+          success: false, 
+          error: 'Timeout exceeded', 
+          attempts: attempt - 1,
+          elapsed: elapsed
+        };
+      }
+      
+      log(`🔄 EO submission attempt ${attempt}/${maxAttempts} (elapsed: ${elapsed}ms)`);
+      
+      // Step 1: Click EO List button (with test mode simulation)
+      let clickedEO = false;
+      const isTestMode = window.location.href.includes('test') || 
+                        localStorage.getItem('eo_test_mode') === 'true';
+      
+      if (isTestMode) {
+        const config = getTestConfig();
+        
+        // Simulate EO button failures for testing retry logic
+        if (attempt <= config.failEOButtonAttempts) {
+          log(`🧪 TEST: Simulating EO button failure on attempt ${attempt}`);
+          clickedEO = false;
+        } else {
+          log(`🧪 TEST: Simulating EO button success on attempt ${attempt}`);
+          clickedEO = true;
+        }
+      } else {
+        // Real EO button clicking logic
+        const dialog = await ensureShiftDialog();
+        
+        if (dialog) {
+          clickedEO = clickButtonByText(dialog, 'EO List');
+        }
+        if (!clickedEO) {
+          clickedEO = clickButtonByText(document.body, 'EO List');
+        }
+      }
+      
+      if (!clickedEO) {
+        log(`❌ Attempt ${attempt}: EO List button not found`);
+        if (attempt < maxAttempts && totalSleepTime < maxSleepTime) {
+          const sleepTime = Math.min(retryDelay, maxSleepTime - totalSleepTime);
+          totalSleepTime += sleepTime;
+          log(`💤 Waiting ${sleepTime}ms before retry (total sleep: ${totalSleepTime}ms)`);
+          await sleep(sleepTime);
+        }
+        continue;
+      }
+      
+      log(`✅ Successfully clicked EO List button on attempt ${attempt}`);
+      
+      // Step 2: Submit with verification
+      const submitResult = await waitForEOModalAndSubmit();
+      
+      // Handle successful submission with verification
+      if (submitResult?.clicked && submitResult?.verified) {
+        log(`✅ EO submission successful and verified on attempt ${attempt}!`);
+        return { 
+          success: true, 
+          attempts: attempt, 
+          verified: true,
+          elapsed: Date.now() - startTime
+        };
+      }
+      
+      // Handle successful submission but unverified
+      if (submitResult?.clicked && !submitResult?.verified) {
+        log(`⚠️ Attempt ${attempt}: Submitted but verification failed - assuming success`);
+        return { 
+          success: true, 
+          attempts: attempt, 
+          verified: false,
+          elapsed: Date.now() - startTime
+        };
+      }
+      
+      // Handle submission failure
+      log(`❌ Attempt ${attempt}: Submit failed - ${submitResult?.error || 'unknown error'}`);
+      
+      // Don't delay after last attempt, and respect sleep limits
+      if (attempt < maxAttempts && totalSleepTime < maxSleepTime) {
+        const sleepTime = Math.min(retryDelay, maxSleepTime - totalSleepTime);
+        totalSleepTime += sleepTime;
+        log(`💤 Waiting ${sleepTime}ms before retry (total sleep: ${totalSleepTime}ms)`);
+        await sleep(sleepTime);
+      }
+    }
+    
+    const finalElapsed = Date.now() - startTime;
+    log(`❌ All EO submission attempts failed after ${finalElapsed}ms`);
+    return { 
+      success: false, 
+      error: 'Max attempts reached', 
+      attempts: maxAttempts,
+      elapsed: finalElapsed
+    };
+  }
+
   async function waitForEOModalAndSubmit() {
     log('Waiting for EO modal to appear and attempting Submit...');
     const maxWaitTime = 5000; // 5 seconds max wait
@@ -547,7 +1102,17 @@
           log('Clicking Submit button:', submitButton.textContent?.trim());
           submitButton.click();
           await sleep(100); // Wait for submission to process (optimized)
-          return true;
+          
+          // Verify submission success
+          const isTestMode = window.location.href.includes('test') || 
+                           localStorage.getItem('eo_test_mode') === 'true';
+          const verified = await verifySubmissionSuccess(isTestMode);
+          
+          return {
+            clicked: true,
+            verified: verified,
+            timestamp: Date.now()
+          };
         }
       }
       
@@ -556,7 +1121,11 @@
     }
     
     log('Timeout waiting for Submit button to appear');
-    return false;
+    return {
+      clicked: false,
+      verified: false,
+      error: 'Submit button timeout'
+    };
   }
 
   function tryFindSubmitInContainer(container) {
@@ -635,34 +1204,52 @@
       log('⚠️ No dialog detected but EO List button found, proceeding with direct approach...');
     }
 
-    // Click EO List - try both dialog context and document context
-    let clickedEO = false;
-    if (dialog) {
-      clickedEO = clickButtonByText(dialog, 'EO List');
-    }
-    if (!clickedEO) {
-      clickedEO = clickButtonByText(document.body, 'EO List');
-    }
+    // Use retry logic for enhanced reliability (handles entire EO submission flow)
+    const retryResult = await submitEOWithRetry(3, 1500); // 3 attempts, 1.5s delay
     
-    if (!clickedEO) {
-      log('❌ EO List button not found in dialog or document body');
-      return;
-    }
-    
-    log('✅ Successfully clicked EO List button, monitoring for EO modal...');
-    
-    // Enhanced Submit detection with modal monitoring
-    const submitSuccess = await waitForEOModalAndSubmit();
-    if (submitSuccess) {
-      log('✅ Successfully submitted EO request!');
+    // Handle comprehensive retry results
+    if (retryResult.success) {
+      if (retryResult.verified) {
+        log(`🎉 EO submission successful and verified after ${retryResult.attempts} attempt(s) in ${retryResult.elapsed}ms!`);
+      } else {
+        log(`⚠️ EO submission completed after ${retryResult.attempts} attempt(s) but verification failed`);
+        log('🔍 Manual verification recommended - check portal for EO status');
+      }
     } else {
-      log('❌ Failed to submit EO - Submit button not found or not clickable.');
+      log(`❌ EO submission failed after ${retryResult.attempts} attempt(s): ${retryResult.error}`);
+      log(`⏱️ Total time elapsed: ${retryResult.elapsed}ms`);
       log('Final state - available dialogs and buttons:');
       debugLogAvailableButtons(document);
     }
   }
 
-  try { await run(); } catch (e) { console.error(e); }
+  // Initialize DOM cache system
+  initDOMCache();
+  
+  // Auto-save cache periodically and on page unload
+  const saveInterval = setInterval(saveDOMCache, 30000); // Every 30 seconds
+  
+  window.addEventListener('beforeunload', () => {
+    clearInterval(saveInterval);
+    saveDOMCache();
+  });
+  
+  try { 
+    await run(); 
+    
+    // Save cache after successful run
+    saveDOMCache();
+    
+    // Log performance statistics
+    const { cacheHits, cacheMisses, avgCacheTime, avgSearchTime } = DOM_CACHE.performance;
+    if (cacheHits + cacheMisses > 0) {
+      const hitRate = ((cacheHits / (cacheHits + cacheMisses)) * 100).toFixed(1);
+      log(`📊 DOM Cache Performance: ${hitRate}% hit rate, avg cache: ${avgCacheTime.toFixed(1)}ms, avg search: ${avgSearchTime.toFixed(1)}ms`);
+    }
+  } catch (e) { 
+    console.error(e); 
+    saveDOMCache(); // Save cache even on error
+  }
 })();
 
 
