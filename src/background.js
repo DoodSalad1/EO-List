@@ -7,6 +7,69 @@ const PRE_LEAD_MS = 10 * 1000; // 10 seconds lead
 let lastTestTabId = null;
 const LOGIN_URL = 'https://vr.hollywoodcasinocolumbus.com/ess/login.aspx';
 
+// Native messaging host name
+const NATIVE_HOST = 'com.eolist.scheduler';
+
+// Native messaging functions
+async function sendToNativeHost(message) {
+  return new Promise((resolve, reject) => {
+    const port = chrome.runtime.connectNative(NATIVE_HOST);
+    
+    port.onMessage.addListener((response) => {
+      resolve(response);
+    });
+    
+    port.onDisconnect.addListener(() => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(`Native host disconnected: ${chrome.runtime.lastError.message}`));
+      } else {
+        reject(new Error('Native host disconnected unexpectedly'));
+      }
+    });
+    
+    port.postMessage(message);
+  });
+}
+
+async function scheduleWithNativeHost(dateISO, start, url) {
+  try {
+    const response = await sendToNativeHost({
+      type: 'SCHEDULE_EO',
+      payload: { dateISO, start, url }
+    });
+    return response;
+  } catch (error) {
+    console.error('[EO Native] Failed to schedule with native host:', error);
+    return { success: false, error: error.message, native: false };
+  }
+}
+
+async function cancelWithNativeHost(dateISO, start) {
+  try {
+    const response = await sendToNativeHost({
+      type: 'CANCEL_EO',
+      payload: { dateISO, start }
+    });
+    return response;
+  } catch (error) {
+    console.error('[EO Native] Failed to cancel with native host:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function getScheduledFromNativeHost() {
+  try {
+    const response = await sendToNativeHost({
+      type: 'GET_SCHEDULED',
+      payload: {}
+    });
+    return response;
+  } catch (error) {
+    console.error('[EO Native] Failed to get scheduled from native host:', error);
+    return { success: false, scheduled: [] };
+  }
+}
+
 function alarmName(dateISO, start) {
   return `${ALARM_PREFIX}${dateISO}_${start}`;
 }
@@ -20,17 +83,32 @@ async function scheduleForTwoHoursBefore(dateISO, start, url) {
   const fireTime = Math.max(whenMs, now + 1000); // if already within 2h, fire asap
   const preTime = Math.max(fireTime - PRE_LEAD_MS, now + 1000);
 
+  // Schedule with both Chrome alarms (fallback) and native host (reliable)
   const name = alarmName(dateISO, start);
   await chrome.alarms.create(name, { when: fireTime });
   await chrome.storage.local.set({ [name]: { dateISO, start, url, fireTime } });
+  
   // Precision pre-stage alarm
   const preName = `${PRE_ALARM_PREFIX}${dateISO}_${start}`;
   if (preTime <= fireTime - 1000) {
     await chrome.alarms.create(preName, { when: preTime });
     await chrome.storage.local.set({ [preName]: { dateISO, start, url, fireTime, preTime } });
   }
+
+  // Schedule with native host for system-level reliability
+  const nativeResult = await scheduleWithNativeHost(dateISO, start, url);
+  
   await broadcastStatus();
-  return { ok: true, scheduledFor: new Date(fireTime).toISOString(), dateISO, start, preTimeISO: preTime ? new Date(preTime).toISOString() : null };
+  
+  return { 
+    ok: true, 
+    scheduledFor: new Date(fireTime).toISOString(), 
+    dateISO, 
+    start, 
+    preTimeISO: preTime ? new Date(preTime).toISOString() : null,
+    nativeScheduled: nativeResult.success || false,
+    nativeError: nativeResult.error || null
+  };
 }
 
 function computeTargetTime(dateISO, start) {
@@ -351,8 +429,16 @@ async function cancelSchedule(dateISO, start) {
   const preName = `${PRE_ALARM_PREFIX}${dateISO}_${start}`;
   await chrome.alarms.clear(preName);
   await chrome.storage.local.remove(preName);
+  
+  // Cancel with native host as well
+  const nativeResult = await cancelWithNativeHost(dateISO, start);
+  
   await broadcastStatus();
-  return { ok: cleared };
+  return { 
+    ok: cleared, 
+    nativeCanceled: nativeResult.success || false,
+    nativeError: nativeResult.error || null
+  };
 }
 
 async function getStatus() {
@@ -363,10 +449,31 @@ async function getStatus() {
   const entries = mainKeys.map(k => store[k]).filter(Boolean);
   const preEntries = preKeys.map(k => store[k]).filter(Boolean);
   const now = Date.now();
+  
+  // Debug logging for alarm investigation
+  console.log('[EO Status Debug] Total alarms found:', all.length);
+  console.log('[EO Status Debug] EO main alarms:', mainKeys);
+  console.log('[EO Status Debug] EO pre-alarms:', preKeys);
+  console.log('[EO Status Debug] Stored entries:', entries.map(e => ({ 
+    dateISO: e.dateISO, 
+    start: e.start, 
+    fireTime: e.fireTime,
+    fireDate: new Date(e.fireTime).toLocaleString()
+  })));
+  
   entries.sort((a, b) => (a.fireTime || 0) - (b.fireTime || 0));
   preEntries.sort((a, b) => (a.preTime || 0) - (b.preTime || 0));
+  
+  // Get next alarm (existing logic)
   const next = entries.find(e => (e.fireTime || 0) >= now) || null;
   const nextPre = preEntries.find(e => (e.preTime || 0) >= now) || null;
+  
+  // Get ALL future alarms for enhanced display
+  const futureAlarms = entries.filter(e => (e.fireTime || 0) >= now);
+  const futurePre = preEntries.filter(e => (e.preTime || 0) >= now);
+  
+  console.log('[EO Status Debug] Future alarms count:', futureAlarms.length);
+  console.log('[EO Status Debug] Next alarm:', next ? `${next.dateISO} ${next.start}` : 'none');
   
   // Get today's submission result
   const today = new Date().toISOString().split('T')[0];
@@ -375,11 +482,12 @@ async function getStatus() {
   try {
     const resultData = await chrome.storage.local.get(resultKey);
     todayResult = resultData[resultKey] || null;
+    console.log('[EO Status Debug] Today result:', todayResult ? 'found' : 'none');
   } catch (error) {
     console.error('Error fetching today\'s submission result:', error);
   }
   
-  return { next, nextPre, todayResult };
+  return { next, nextPre, todayResult, futureAlarms, futurePre };
 }
 
 async function broadcastStatus() {

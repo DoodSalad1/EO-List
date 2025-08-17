@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EO List Native Host Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 20px auto; 
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section { 
+            background: white; 
+            padding: 20px; 
+            margin: 10px 0; 
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button { 
+            background: #0b74de; 
+            color: white; 
+            border: none; 
+            padding: 10px 20px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            margin: 5px;
+        }
+        button:hover { background: #0960c4; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .output { 
+            background: #f8f9fa; 
+            padding: 15px; 
+            border-radius: 4px; 
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-family: monospace;
+            border-left: 4px solid #0b74de;
+        }
+        .success { border-left-color: #28a745; }
+        .error { border-left-color: #dc3545; }
+        .warning { border-left-color: #ffc107; }
+        input, select { 
+            padding: 8px; 
+            margin: 5px; 
+            border: 1px solid #ddd; 
+            border-radius: 4px;
+        }
+        h1 { color: #0b74de; }
+        h2 { color: #333; margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 EO List Native Host Integration Test</h1>
+    <p>This page tests the native messaging integration between the Chrome extension and the system-level scheduler.</p>
+    
+    <div class="test-section">
+        <h2>📡 Native Host Connection Test</h2>
+        <button onclick="testConnection()">Test Native Host Connection</button>
+        <div id="connectionOutput" class="output"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>📅 Schedule EO Test</h2>
+        <div>
+            <label>Date: </label>
+            <input type="date" id="scheduleDate" />
+            
+            <label>Time: </label>
+            <select id="scheduleTime">
+                <option value="6:00am">6:00am</option>
+                <option value="7:00am">7:00am</option>
+                <option value="8:00am">8:00am</option>
+                <option value="2:00pm" selected>2:00pm</option>
+                <option value="3:00pm">3:00pm</option>
+                <option value="4:00pm">4:00pm</option>
+                <option value="5:00pm">5:00pm</option>
+                <option value="6:00pm">6:00pm</option>
+                <option value="7:00pm">7:00pm</option>
+                <option value="8:00pm">8:00pm</option>
+                <option value="9:00pm">9:00pm</option>
+                <option value="10:00pm">10:00pm</option>
+                <option value="11:00pm">11:00pm</option>
+            </select>
+            
+            <button onclick="scheduleEO()">Schedule EO</button>
+            <button onclick="getScheduled()">Get Scheduled EOs</button>
+        </div>
+        <div id="scheduleOutput" class="output"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>❌ Cancel EO Test</h2>
+        <div>
+            <label>Date: </label>
+            <input type="date" id="cancelDate" />
+            
+            <label>Time: </label>
+            <select id="cancelTime">
+                <option value="6:00am">6:00am</option>
+                <option value="7:00am">7:00am</option>
+                <option value="8:00am">8:00am</option>
+                <option value="2:00pm" selected>2:00pm</option>
+                <option value="3:00pm">3:00pm</option>
+                <option value="4:00pm">4:00pm</option>
+                <option value="5:00pm">5:00pm</option>
+                <option value="6:00pm">6:00pm</option>
+                <option value="7:00pm">7:00pm</option>
+                <option value="8:00pm">8:00pm</option>
+                <option value="9:00pm">9:00pm</option>
+                <option value="10:00pm">10:00pm</option>
+                <option value="11:00pm">11:00pm</option>
+            </select>
+            
+            <button onclick="cancelEO()">Cancel EO</button>
+        </div>
+        <div id="cancelOutput" class="output"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>🔄 Complete Flow Test</h2>
+        <p>This will schedule an EO for tomorrow at 2:00pm, then immediately cancel it to test the complete flow.</p>
+        <button onclick="testCompleteFlow()">Run Complete Schedule → Cancel Test</button>
+        <div id="flowOutput" class="output"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>📋 System Status</h2>
+        <button onclick="checkSystemStatus()">Check Extension Status</button>
+        <button onclick="checkLaunchdJobs()">Check launchd Jobs</button>
+        <div id="statusOutput" class="output"></div>
+    </div>
+
+    <script>
+        // Set default date to tomorrow
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+        document.getElementById('scheduleDate').value = tomorrowStr;
+        document.getElementById('cancelDate').value = tomorrowStr;
+
+        function log(elementId, message, type = 'info') {
+            const output = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            output.textContent += `[${timestamp}] ${message}\n`;
+            output.className = `output ${type}`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function clearLog(elementId) {
+            document.getElementById(elementId).textContent = '';
+            document.getElementById(elementId).className = 'output';
+        }
+
+        async function testConnection() {
+            clearLog('connectionOutput');
+            log('connectionOutput', '🔌 Testing native host connection...');
+            
+            try {
+                // Test if extension is loaded
+                if (!chrome || !chrome.runtime) {
+                    throw new Error('Chrome extension APIs not available. Make sure this page is loaded from an extension context.');
+                }
+
+                // Test basic extension message
+                const response = await new Promise((resolve, reject) => {
+                    chrome.runtime.sendMessage({
+                        type: 'EO_GET_STATUS'
+                    }, (response) => {
+                        if (chrome.runtime.lastError) {
+                            reject(new Error(chrome.runtime.lastError.message));
+                        } else {
+                            resolve(response);
+                        }
+                    });
+                });
+
+                log('connectionOutput', '✅ Extension communication working', 'success');
+                log('connectionOutput', `📊 Current status: ${JSON.stringify(response, null, 2)}`);
+                
+            } catch (error) {
+                log('connectionOutput', `❌ Connection failed: ${error.message}`, 'error');
+                log('connectionOutput', '💡 Try: 1) Load this page via extension 2) Reload extension 3) Run install.sh', 'warning');
+            }
+        }
+
+        async function scheduleEO() {
+            clearLog('scheduleOutput');
+            const dateISO = document.getElementById('scheduleDate').value;
+            const start = document.getElementById('scheduleTime').value;
+            
+            log('scheduleOutput', `📅 Scheduling EO for ${dateISO} at ${start}...`);
+            
+            try {
+                const response = await new Promise((resolve, reject) => {
+                    chrome.runtime.sendMessage({
+                        type: 'EO_SCHEDULE_OR_RUN',
+                        payload: {
+                            dateISO: dateISO,
+                            start: start,
+                            url: 'https://vr.hollywoodcasinocolumbus.com/ess/Default.aspx?#/roster'
+                        }
+                    }, (response) => {
+                        if (chrome.runtime.lastError) {
+                            reject(new Error(chrome.runtime.lastError.message));
+                        } else {
+                            resolve(response);
+                        }
+                    });
+                });
+
+                if (response.ok) {
+                    log('scheduleOutput', '✅ Chrome alarm scheduled successfully', 'success');
+                    log('scheduleOutput', `⏰ Scheduled for: ${response.scheduledFor}`);
+                    
+                    if (response.nativeScheduled) {
+                        log('scheduleOutput', '✅ Native host scheduling successful', 'success');
+                        log('scheduleOutput', '🔒 EO will run even if Chrome is closed!');
+                    } else {
+                        log('scheduleOutput', '⚠️ Native host scheduling failed', 'warning');
+                        log('scheduleOutput', `Error: ${response.nativeError || 'Unknown error'}`);
+                        log('scheduleOutput', '📋 EO will only run if Chrome is open');
+                    }
+                } else {
+                    log('scheduleOutput', `❌ Scheduling failed: ${response.reason}`, 'error');
+                }
+                
+            } catch (error) {
+                log('scheduleOutput', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function getScheduled() {
+            log('scheduleOutput', '\n📋 Getting scheduled EOs...');
+            
+            try {
+                const response = await new Promise((resolve, reject) => {
+                    chrome.runtime.sendMessage({
+                        type: 'EO_GET_STATUS'
+                    }, (response) => {
+                        if (chrome.runtime.lastError) {
+                            reject(new Error(chrome.runtime.lastError.message));
+                        } else {
+                            resolve(response);
+                        }
+                    });
+                });
+
+                if (response.next) {
+                    log('scheduleOutput', `✅ Next Chrome alarm: ${response.next.dateISO} ${response.next.start}`, 'success');
+                } else {
+                    log('scheduleOutput', 'ℹ️ No Chrome alarms scheduled');
+                }
+
+                if (response.futureAlarms && response.futureAlarms.length > 0) {
+                    log('scheduleOutput', `📅 Total future alarms: ${response.futureAlarms.length}`);
+                } else {
+                    log('scheduleOutput', 'ℹ️ No future alarms found');
+                }
+                
+            } catch (error) {
+                log('scheduleOutput', `❌ Error getting status: ${error.message}`, 'error');
+            }
+        }
+
+        async function cancelEO() {
+            clearLog('cancelOutput');
+            const dateISO = document.getElementById('cancelDate').value;
+            const start = document.getElementById('cancelTime').value;
+            
+            log('cancelOutput', `❌ Canceling EO for ${dateISO} at ${start}...`);
+            
+            try {
+                const response = await new Promise((resolve, reject) => {
+                    chrome.runtime.sendMessage({
+                        type: 'EO_CANCEL',
+                        payload: {
+                            dateISO: dateISO,
+                            start: start
+                        }
+                    }, (response) => {
+                        if (chrome.runtime.lastError) {
+                            reject(new Error(chrome.runtime.lastError.message));
+                        } else {
+                            resolve(response);
+                        }
+                    });
+                });
+
+                if (response.ok) {
+                    log('cancelOutput', '✅ Chrome alarm canceled successfully', 'success');
+                    
+                    if (response.nativeCanceled) {
+                        log('cancelOutput', '✅ Native host cancellation successful', 'success');
+                        log('cancelOutput', '🗑️ launchd job removed from system');
+                    } else {
+                        log('cancelOutput', '⚠️ Native host cancellation failed', 'warning');
+                        log('cancelOutput', `Error: ${response.nativeError || 'Unknown error'}`);
+                    }
+                } else {
+                    log('cancelOutput', '❌ Cancellation failed', 'error');
+                }
+                
+            } catch (error) {
+                log('cancelOutput', `❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testCompleteFlow() {
+            clearLog('flowOutput');
+            log('flowOutput', '🔄 Starting complete schedule → cancel flow test...');
+            
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const dateISO = tomorrow.toISOString().split('T')[0];
+            const start = '2:00pm';
+            
+            try {
+                // Step 1: Schedule
+                log('flowOutput', '📅 Step 1: Scheduling EO...');
+                const scheduleResponse = await new Promise((resolve, reject) => {
+                    chrome.runtime.sendMessage({
+                        type: 'EO_SCHEDULE_OR_RUN',
+                        payload: {
+                            dateISO: dateISO,
+                            start: start,
+                            url: 'https://vr.hollywoodcasinocolumbus.com/ess/Default.aspx?#/roster'
+                        }
+                    }, resolve);
+                });
+
+                if (!scheduleResponse.ok) {
+                    throw new Error(`Schedule failed: ${scheduleResponse.reason}`);
+                }
+
+                log('flowOutput', '✅ Schedule successful!', 'success');
+                log('flowOutput', `   Chrome: ${scheduleResponse.ok ? 'OK' : 'FAIL'}`);
+                log('flowOutput', `   Native: ${scheduleResponse.nativeScheduled ? 'OK' : 'FAIL'}`);
+
+                // Step 2: Wait a moment
+                log('flowOutput', '⏳ Step 2: Waiting 2 seconds...');
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
+                // Step 3: Cancel
+                log('flowOutput', '❌ Step 3: Canceling EO...');
+                const cancelResponse = await new Promise((resolve, reject) => {
+                    chrome.runtime.sendMessage({
+                        type: 'EO_CANCEL',
+                        payload: {
+                            dateISO: dateISO,
+                            start: start
+                        }
+                    }, resolve);
+                });
+
+                if (!cancelResponse.ok) {
+                    throw new Error('Cancel failed');
+                }
+
+                log('flowOutput', '✅ Cancel successful!', 'success');
+                log('flowOutput', `   Chrome: ${cancelResponse.ok ? 'OK' : 'FAIL'}`);
+                log('flowOutput', `   Native: ${cancelResponse.nativeCanceled ? 'OK' : 'FAIL'}`);
+
+                // Step 4: Verify cleanup
+                log('flowOutput', '🔍 Step 4: Verifying cleanup...');
+                const statusResponse = await new Promise((resolve, reject) => {
+                    chrome.runtime.sendMessage({
+                        type: 'EO_GET_STATUS'
+                    }, resolve);
+                });
+
+                const hasScheduled = statusResponse.next || (statusResponse.futureAlarms && statusResponse.futureAlarms.length > 0);
+                
+                if (hasScheduled) {
+                    log('flowOutput', '⚠️ Warning: Some alarms still exist after cancellation', 'warning');
+                } else {
+                    log('flowOutput', '✅ Perfect! All alarms cleaned up successfully', 'success');
+                }
+
+                log('flowOutput', '\n🎉 Complete flow test PASSED! Schedule/Cancel working correctly.', 'success');
+                
+            } catch (error) {
+                log('flowOutput', `❌ Flow test FAILED: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkSystemStatus() {
+            clearLog('statusOutput');
+            log('statusOutput', '📊 Checking extension system status...');
+            
+            try {
+                const response = await new Promise((resolve, reject) => {
+                    chrome.runtime.sendMessage({
+                        type: 'EO_GET_STATUS'
+                    }, resolve);
+                });
+
+                log('statusOutput', '✅ Extension responding', 'success');
+                log('statusOutput', `Status: ${JSON.stringify(response, null, 2)}`);
+                
+            } catch (error) {
+                log('statusOutput', `❌ Extension error: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkLaunchdJobs() {
+            log('statusOutput', '\n🔍 Checking system-level launchd jobs...');
+            log('statusOutput', 'ℹ️ Note: This requires manual terminal check');
+            log('statusOutput', 'Run: ls ~/Library/LaunchAgents/com.eolist.schedule.*.plist');
+            log('statusOutput', 'Expected: Should be empty after cancellation tests');
+        }
+
+        // Auto-run connection test on load
+        window.addEventListener('load', () => {
+            setTimeout(testConnection, 1000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "com.eolist.scheduler",
+  "description": "EO List System-Level Scheduler",
+  "path": "/Users/rileyhays/EO-List/native-host/eo-scheduler.js",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://EXTENSION_ID_PLACEHOLDER/"
+  ]
+}

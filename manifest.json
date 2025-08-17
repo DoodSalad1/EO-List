@@ -1,7 +1,7 @@
 {
   "name": "EO List",
   "description": "Join the Early Out list at the earliest possible moment on the VR roster page.",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "manifest_version": 3,
   "permissions": [
     "storage",
@@ -10,7 +10,8 @@
     "scripting",
     "activeTab",
     "tabs",
-    "downloads"
+    "downloads",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "https://vr.hollywoodcasinocolumbus.com/*"
