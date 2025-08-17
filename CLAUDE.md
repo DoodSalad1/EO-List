@@ -207,6 +207,30 @@ Before committing changes, use the comprehensive test suites:
 
 ### Latest Implementation (August 2025)
 
+#### Version 0.1.5 - Simplified UI (Feature Removal) ✅ COMPLETED
+- **Feature Removed**: "Schedule EO" button and shift selection mode functionality
+- **Rationale**: Redundant with existing workflow (click shift cell → click "EO ASAP")
+- **Benefits**: Simplified UI, reduced code complexity (~200 lines removed), clearer user workflow
+- **Implementation**: 
+  - ✅ Removed all Schedule EO JavaScript functions from content.js
+  - ✅ Removed shift selection mode CSS styling from inject.css
+  - ✅ Preserved core "EO ASAP" functionality unchanged
+  - ✅ Updated version to 0.1.5
+
+#### Version 0.1.3 - Enhanced Future EO Visibility ✅ COMPLETED
+- **Issue Fixed**: Status panel now shows future scheduled EOs even when today's result exists
+- **User Problem Solved**: Scheduled EO for tomorrow visible alongside "already on EO list" status for today
+- **Implementation**: Multi-section status display showing both today's results AND future schedules
+- **Features Added**: 
+  - ✅ Enhanced getStatus() in background.js to return ALL future alarms (futureAlarms, futurePre)
+  - ✅ Added comprehensive debug logging for alarm investigation and troubleshooting
+  - ✅ Completely rewrote updateStatusPanel() in content.js for multi-line sectioned display
+  - ✅ Multi-section display: "Today: Already on EO list" + "Tomorrow: EO scheduled for 4:00pm"
+  - ✅ Enhanced status panel CSS for better multi-line content support
+  - ✅ Improved cancel functionality with specific tooltips for future EOs
+  - ✅ Visual indicators (✅📅) and relative day labels (Today/Tomorrow/dates)
+- **Expected Display**: Shows up to 3 future EOs with clear day labels and timing information
+
 #### Version 0.1.2 - Universal Status & Smart Detection
 - **Critical Fix**: Added "already on EO list" detection to prevent unnecessary submissions
 - **Universal Status**: Status panel now works on ALL VR pages including login screen

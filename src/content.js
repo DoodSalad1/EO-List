@@ -111,8 +111,13 @@
   }
 
   function ensureButton(dialogEl) {
+    // Only add buttons when a shift dialog is actually open
+    if (!dialogEl) {
+      return; // No dialog = no buttons needed
+    }
+
     // Place a button inside the dialog
-    if (dialogEl && !dialogEl.querySelector('#eo-asap-btn')) {
+    if (!dialogEl.querySelector('#eo-asap-btn')) {
       const btn = document.createElement('button');
       btn.id = 'eo-asap-btn';
       btn.textContent = 'EO ASAP';
@@ -130,28 +135,32 @@
       inline.className = 'eo-asap-btn';
       inline.style.marginLeft = '8px';
       inline.textContent = 'EO ASAP';
-      inline.addEventListener('click', () => handleAction(dialogEl || queryShiftDialog()));
+      inline.addEventListener('click', () => handleAction(dialogEl));
       eoNative.parentElement?.insertBefore(inline, eoNative.nextSibling);
     }
 
-    // Also add a floating button on the page to use when modal detection fails
+    // Add a floating button as backup only when dialog is open
     if (!document.getElementById('eo-asap-float')) {
       const floatBtn = document.createElement('button');
       floatBtn.id = 'eo-asap-float';
       floatBtn.className = 'eo-asap-btn eo-asap-float';
       floatBtn.textContent = 'EO ASAP';
-      floatBtn.title = 'Schedule EO for the selected shift or attempt now';
-      floatBtn.addEventListener('click', () => {
-        const dialog = queryShiftDialog();
-        if (!dialog) {
-          // Try to open a shift cell automatically before prompting
-          tryOpenCellThenInject();
-          setTimeout(() => handleAction(queryShiftDialog()), 150);
-        } else {
-          handleAction(dialog);
-        }
-      });
+      floatBtn.title = 'Schedule EO for this shift';
+      floatBtn.addEventListener('click', () => handleAction(dialogEl));
       document.body.appendChild(floatBtn);
+    }
+  }
+
+  function cleanupButtons() {
+    // Remove floating buttons when dialog closes
+    const floatBtn = document.getElementById('eo-asap-float');
+    if (floatBtn) {
+      floatBtn.remove();
+    }
+    
+    const inlineBtn = document.getElementById('eo-asap-inline');
+    if (inlineBtn) {
+      inlineBtn.remove();
     }
   }
 
@@ -258,8 +267,11 @@
     }
     
     const dialog = queryShiftDialog();
-    if (!dialog) return;
-    ensureButton(dialog);
+    if (dialog) {
+      ensureButton(dialog); // Add buttons when dialog is open
+    } else {
+      cleanupButtons(); // Remove buttons when no dialog
+    }
   }
 
   // Check if we're on any VR page (not just roster)
@@ -384,7 +396,11 @@
     const text = panel.querySelector('#eo-status-text');
     const cancelBtn = panel.querySelector('#eo-cancel-btn');
     
-    // Priority 1: Show today's submission result if available
+    // Build comprehensive status display with multiple sections
+    const statusLines = [];
+    let hasActiveSchedule = false;
+    
+    // Section 1: Today's submission result (if available)
     if (status?.todayResult) {
       const result = status.todayResult;
       const timestamp = new Date(result.timestamp);
@@ -392,52 +408,104 @@
       
       if (result.success) {
         if (result.alreadyOnList) {
-          text.textContent = `✅ Already on EO list (checked at ${timeStr})`;
-          text.style.color = '#28a745'; // Green
+          statusLines.push(`✅ Today: Already on EO list (checked at ${timeStr})`);
         } else if (result.verified) {
-          text.textContent = `✅ EO submitted successfully at ${timeStr}`;
-          text.style.color = '#28a745'; // Green
+          statusLines.push(`✅ Today: EO submitted successfully at ${timeStr}`);
         } else {
-          text.textContent = `⚠️ EO submitted at ${timeStr} (verification failed)`;
-          text.style.color = '#fd7e14'; // Orange
+          statusLines.push(`⚠️ Today: EO submitted at ${timeStr} (verification failed)`);
         }
       } else {
-        text.textContent = `❌ EO submission failed at ${timeStr} - ${result.error || 'Unknown error'}`;
-        text.style.color = '#dc3545'; // Red
+        statusLines.push(`❌ Today: EO submission failed at ${timeStr}`);
+      }
+    }
+    
+    // Section 2: Future scheduled EOs (use new futureAlarms data)
+    const futureAlarms = status?.futureAlarms || [];
+    const futurePre = status?.futurePre || [];
+    
+    if (futureAlarms.length > 0) {
+      hasActiveSchedule = true;
+      
+      // Show up to 3 future EOs to avoid overwhelming the display
+      const displayAlarms = futureAlarms.slice(0, 3);
+      
+      for (let i = 0; i < displayAlarms.length; i++) {
+        const alarm = displayAlarms[i];
+        const fireTime = new Date(alarm.fireTime);
+        const timeStr = fireTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const dateStr = alarm.dateISO;
+        
+        // Determine relative day
+        const today = new Date().toISOString().split('T')[0];
+        const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        
+        let dayLabel = dateStr;
+        if (dateStr === tomorrow) {
+          dayLabel = 'Tomorrow';
+        } else if (dateStr === today) {
+          dayLabel = 'Today';
+        }
+        
+        // Check if this alarm has a precision pre-stage
+        const correspondingPre = futurePre.find(p => 
+          p.dateISO === alarm.dateISO && p.start === alarm.start
+        );
+        
+        if (correspondingPre) {
+          const preTime = new Date(correspondingPre.preTime);
+          const preStr = preTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          statusLines.push(`📅 ${dayLabel}: Precision ${preStr} → EO ${timeStr} (${alarm.start})`);
+        } else {
+          statusLines.push(`📅 ${dayLabel}: EO scheduled for ${timeStr} (${alarm.start})`);
+        }
       }
       
-      // Hide cancel button when showing submission results
-      if (cancelBtn) cancelBtn.style.display = 'none';
-      panel._current = null;
-      return;
+      // Show count if there are more alarms
+      if (futureAlarms.length > 3) {
+        statusLines.push(`   ... and ${futureAlarms.length - 3} more scheduled`);
+      }
     }
     
-    // Reset text color for non-result messages
-    text.style.color = '';
-    
-    // Priority 2: Show scheduled alarms (existing logic)
-    if (!status || (!status.next && !status.nextPre)) {
-      panel._current = null;
-      text.textContent = 'No EO scheduled.';
-      // Hide cancel button when no EO is scheduled
-      if (cancelBtn) cancelBtn.style.display = 'none';
-      return;
+    // Section 3: No status case
+    if (statusLines.length === 0) {
+      statusLines.push('No EO scheduled.');
     }
     
-    const when = status.next ? new Date(status.next.fireTime) : null;
-    const pre = status.nextPre ? new Date(status.nextPre.preTime) : null;
-    panel._current = status.next || null;
+    // Update display
+    text.innerHTML = statusLines.join('<br>');
+    text.style.color = ''; // Reset color for multi-line display
     
-    // Show cancel button when EO is scheduled
-    if (cancelBtn) cancelBtn.style.display = 'inline-block';
-    
-    if (pre && when) {
-      text.textContent = `Precision: ${pre.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} → EO ${when.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} (${status.next.dateISO})`;
-    } else if (when) {
-      text.textContent = `Next EO: ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${status.next.dateISO})`;
+    // Handle cancel button visibility and functionality
+    if (hasActiveSchedule && futureAlarms.length > 0) {
+      // Show cancel button for future EOs
+      if (cancelBtn) {
+        cancelBtn.style.display = 'inline-block';
+        // Store the next alarm for cancellation
+        panel._current = futureAlarms[0];
+        
+        // Update button text to be more specific
+        if (futureAlarms.length === 1) {
+          const alarm = futureAlarms[0];
+          const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+          const dayLabel = alarm.dateISO === tomorrow ? 'Tomorrow' : alarm.dateISO;
+          cancelBtn.title = `Cancel EO for ${dayLabel} ${alarm.start}`;
+        } else {
+          cancelBtn.title = `Cancel next EO (${futureAlarms.length} scheduled)`;
+        }
+      }
     } else {
-      text.textContent = 'Preparing…';
+      // Hide cancel button when no future schedules
+      if (cancelBtn) {
+        cancelBtn.style.display = 'none';
+        cancelBtn.title = 'Cancel scheduled EO';
+      }
+      panel._current = null;
     }
+    
+    // Debug logging
+    console.log('[EO Status Display] Lines:', statusLines);
+    console.log('[EO Status Display] Future alarms:', futureAlarms.length);
+    console.log('[EO Status Display] Has active schedule:', hasActiveSchedule);
   }
 })();
 
